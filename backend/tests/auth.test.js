@@ -42,7 +42,7 @@ test('registers, logs in, protects routes, rejects invalid credentials, and logs
   const crossOriginRegister = await fetch(`${baseUrl}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: 'https://attacker.example' },
-    body: JSON.stringify({ name: 'Test User', email, password }),
+    body: JSON.stringify({ name: 'Test User', email, password, role: 'admin' }),
   })
   assert.equal(crossOriginRegister.status, 403)
 
@@ -56,16 +56,18 @@ test('registers, logs in, protects routes, rejects invalid credentials, and logs
   const registration = await fetch(`${baseUrl}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: process.env.FRONTEND_URL },
-    body: JSON.stringify({ name: 'Test User', email, password }),
+    body: JSON.stringify({ name: 'Test User', email, password, role: 'admin' }),
   })
   assert.equal(registration.status, 201)
   const registrationBody = await registration.json()
-  assert.deepEqual(Object.keys(registrationBody.user).sort(), ['email', 'id', 'name'])
+  assert.deepEqual(Object.keys(registrationBody.user).sort(), ['email', 'id', 'name', 'role'])
   assert.equal(registrationBody.user.email, email)
+  assert.equal(registrationBody.user.role, 'user')
   const registeredCookie = registration.headers.get('set-cookie')?.split(';', 1)[0]
   assert.match(registeredCookie || '', /^sharesafe_token=/)
 
   const storedUser = await User.findOne({ email }).select('+passwordHash')
+  assert.equal(storedUser.role, 'user')
   assert.ok(storedUser.passwordHash.startsWith('$2'))
   assert.notEqual(storedUser.passwordHash, password)
 

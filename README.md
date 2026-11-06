@@ -61,12 +61,16 @@ Edit `backend/.env`:
 - `FRONTEND_URL`: Exact frontend origin, usually `http://localhost:5173`.
 - `JWT_SECRET`: Private random secret with at least 32 characters. The example placeholder is rejected.
 - `SHARE_TOKEN_SECRET`: Different private random secret with at least 32 characters. Keep it stable to preserve existing share URLs.
+- `ADMIN_PASSWORD`: Optional 12–72 byte password for the local demo admin. Leave empty to generate a strong password on first seed; the generated password is printed once and preserved on later runs.
 
 Never commit or share `.env`. Start the backend in that terminal:
 
 ```powershell
+npm run seed:admin
 npm run dev
 ```
+
+The seed command is restricted to a local MongoDB URI and refuses to run with `NODE_ENV=production`. It creates or updates `admin@sharesafe.local` with the `admin` role. If `ADMIN_PASSWORD` is empty, it generates a random password only when creating the account; save the one-time output. Subsequent runs preserve that password. Set `ADMIN_PASSWORD` in the ignored `.env` to explicitly set or rotate it.
 
 In a second terminal, start the frontend:
 
@@ -81,6 +85,7 @@ The frontend defaults to `http://localhost:3000/api`. To change it, copy `fronte
 ## Implemented features
 
 - Registration, login, logout, and current-user restoration with bcrypt hashes and HttpOnly JWT cookies.
+- Local-only idempotent demo admin seed command; new registrations always receive the regular `user` role.
 - Authenticated file uploads up to 10 MB. Supported formats: PDF, PNG, JPEG, GIF, WebP, TXT, and CSV.
 - User-owned file listing, metadata lookup, and deletion. Deleting a file also revokes its associated shares and removes its local contents.
 - Owner-only file details and downloads.
