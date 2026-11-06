@@ -137,6 +137,15 @@ td { height: 66px; color: var(--text); border-top: 1px solid var(--border); font
 .dialog-actions, .share-url-row { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .share-created p { color: var(--muted); font-size: 15px; line-height: 1.5; }
 .share-created .theme-toggle { justify-self: end; }
+.file-details-body, .history-body { padding: 0 24px 22px; }
+.file-details-button { max-width: min(42vw, 450px); padding: 5px 0; color: var(--text); border: 0; background: transparent; text-align: left; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.file-details-button:hover { color: var(--accent); text-decoration: underline; }
+.file-details-body dl { display: grid; gap: 14px; margin: 0; }
+.file-details-body dl div { display: flex; justify-content: space-between; gap: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.file-details-body dt { color: var(--muted); }
+.file-details-body dd { margin: 0; color: var(--text); text-align: right; overflow-wrap: anywhere; }
+.history-body ol { display: grid; gap: 12px; max-height: 50vh; padding-left: 26px; margin: 0; overflow-y: auto; color: var(--text); }
+.history-body li { padding-left: 4px; }
 .share-url-row { justify-content: stretch; }
 .share-url-row input { min-width: 0; }
 .public-share-page { width: min(100%, 560px); padding: 28px 20px; margin: 0 auto; }

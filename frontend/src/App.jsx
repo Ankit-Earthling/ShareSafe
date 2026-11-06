@@ -3,11 +3,13 @@ import AuthPage from './pages/AuthPage.jsx'
 import PublicSharePage from './pages/PublicSharePage.jsx'
 import BackendStatus from './components/BackendStatus.jsx'
 import DashboardHeader from './components/DashboardHeader.jsx'
+import FileDetailsDialog from './components/FileDetailsDialog.jsx'
 import OverviewCards from './components/OverviewCards.jsx'
 import RecentFiles from './components/RecentFiles.jsx'
 import RecentLinks from './components/RecentLinks.jsx'
 import Sidebar from './components/Sidebar.jsx'
 import ShareDialog from './components/ShareDialog.jsx'
+import ShareHistoryDialog from './components/ShareHistoryDialog.jsx'
 import UploadSection from './components/UploadSection.jsx'
 import { useAuth } from './context/useAuth.js'
 import { filesApi, getHealth, sharesApi } from './services/api.js'
@@ -26,7 +28,7 @@ const authPages = ['Login', 'Register']
 function pageFromPath(pathname) {
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
   if (normalizedPath === '/dashboard') return 'Dashboard'
-  if (/^\/share\/[A-Za-z0-9_-]{43}$/.test(normalizedPath)) return 'Public Share'
+  if (/^\/share\/[^/]+$/.test(normalizedPath)) return 'Public Share'
   return Object.entries(pagePaths).find(([, path]) => path === normalizedPath)?.[0] || 'Dashboard'
 }
 
@@ -40,10 +42,13 @@ function App() {
   const [search, setSearch] = useState('')
   const [files, setFiles] = useState([])
   const [shareLinks, setShareLinks] = useState([])
+  const [dataState, setDataState] = useState('loading')
   const [feedback, setFeedback] = useState('')
   const [backendStatus, setBackendStatus] = useState('checking')
   const [uploading, setUploading] = useState(false)
   const [sharingFile, setSharingFile] = useState(null)
+  const [detailsFile, setDetailsFile] = useState(null)
+  const [historyShare, setHistoryShare] = useState(null)
   const feedbackTimer = useRef(null)
 
   const navigate = useCallback((page, replace = false) => {
@@ -104,9 +109,15 @@ function App() {
         if (current) {
           setFiles(fileResult.files)
           setShareLinks(shareResult.shares)
+          setDataState('ready')
         }
       })
-      .catch(() => { if (current) notify('Could not load your files. Check the backend connection and refresh.') })
+      .catch(() => {
+        if (current) {
+          setDataState('error')
+          notify('Could not load your files. Check the backend connection and refresh.')
+        }
+      })
     return () => { current = false }
   }, [active, user])
 
@@ -121,6 +132,21 @@ function App() {
     const result = await sharesApi.create(details)
     setShareLinks((current) => [{ ...result.share, url: result.url }, ...current])
     return result
+  }
+
+  const downloadFile = async (file) => {
+    try {
+      const blob = await filesApi.download(file.id)
+      const objectUrl = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = file.name
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      notify('Download started.')
+    } catch (error) { notify(error.message || 'The file could not be downloaded.') }
   }
 
   const revokeLink = async (id) => {
@@ -200,12 +226,12 @@ function App() {
           <OverviewCards files={files} shares={shareLinks} />
           <UploadSection onBrowse={openFilePicker} onDrop={handleUpload} uploading={uploading} />
           <div className="tables-grid">
-            <RecentFiles files={filteredFiles.slice(0, 4)} onShare={setSharingFile} onDelete={deleteFile} onViewAll={() => navigate('My Files')} />
-            <RecentLinks links={filteredLinks.slice(0, 3)} onViewAll={() => navigate('Shared Links')} onCopy={(link) => copyLink(link.url)} onRevoke={revokeLink} />
+            <RecentFiles files={filteredFiles.slice(0, 4)} loading={dataState === 'loading'} onShare={setSharingFile} onDownload={downloadFile} onDelete={deleteFile} onDetails={setDetailsFile} onViewAll={() => navigate('My Files')} />
+            <RecentLinks links={filteredLinks.slice(0, 3)} loading={dataState === 'loading'} onViewAll={() => navigate('Shared Links')} onCopy={(link) => copyLink(link.url)} onHistory={setHistoryShare} onRevoke={revokeLink} />
           </div>
         </>}
-        {active === 'My Files' && <div className="tables-grid page-view"><RecentFiles files={filteredFiles} onShare={setSharingFile} onDelete={deleteFile} showViewAll={false} /></div>}
-        {active === 'Shared Links' && <div className="tables-grid page-view"><RecentLinks links={filteredLinks} onCopy={(link) => copyLink(link.url)} onRevoke={revokeLink} showViewAll={false} /></div>}
+        {active === 'My Files' && <div className="tables-grid page-view"><RecentFiles files={filteredFiles} loading={dataState === 'loading'} onShare={setSharingFile} onDownload={downloadFile} onDelete={deleteFile} onDetails={setDetailsFile} showViewAll={false} /></div>}
+        {active === 'Shared Links' && <div className="tables-grid page-view"><RecentLinks links={filteredLinks} loading={dataState === 'loading'} onCopy={(link) => copyLink(link.url)} onHistory={setHistoryShare} onRevoke={revokeLink} showViewAll={false} /></div>}
         {active === 'Settings' && <div className="settings-page">
           <section className="content-card appearance-card">
             <div><h2>Appearance</h2><p>Choose how ShareSafe looks on this device.</p></div>
@@ -216,6 +242,8 @@ function App() {
       </div>
     </main>
     {sharingFile && <ShareDialog file={sharingFile} onClose={() => setSharingFile(null)} onCreate={createShare} onCopy={copyLink} />}
+    {detailsFile && <FileDetailsDialog file={detailsFile} onClose={() => setDetailsFile(null)} />}
+    {historyShare && <ShareHistoryDialog share={historyShare} onClose={() => setHistoryShare(null)} />}
     {feedback && <div className="action-feedback" role="status" aria-live="polite">{feedback}</div>}
   </div>
 }

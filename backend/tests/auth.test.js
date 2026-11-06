@@ -15,6 +15,7 @@ before(async () => {
   process.env.MONGODB_URI = 'mongodb://127.0.0.1:27017/sharesafe_auth_test'
   process.env.FRONTEND_URL = 'http://localhost:5173'
   process.env.JWT_SECRET = randomBytes(32).toString('base64url')
+  process.env.SHARE_TOKEN_SECRET = randomBytes(32).toString('base64url')
 
   const [{ default: userModel }, database, { createApp }] = await Promise.all([
     import('../models/User.js'),

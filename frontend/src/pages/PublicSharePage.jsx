@@ -36,7 +36,7 @@ export default function PublicSharePage({ token, theme }) {
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()
-      URL.revokeObjectURL(objectUrl)
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
     } catch (requestError) {
       setError(requestError.message || 'This sharing link could not be opened.')
     } finally {

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
-import { accessPublicShare, createShare, getPublicShare, listShares, revokeShare } from '../controllers/shareController.js'
+import { accessPublicShare, createShare, getPublicShare, getShareHistory, listShares, revokeShare } from '../controllers/shareController.js'
 import { requireFrontendOrigin } from '../middleware/requireFrontendOrigin.js'
 
 const shareRoutes = Router()
@@ -17,6 +17,7 @@ publicShareRoutes.post('/:token/access', publicAccessLimiter, accessPublicShare)
 
 shareRoutes.post('/', requireFrontendOrigin, createShare)
 shareRoutes.get('/', listShares)
+shareRoutes.get('/:id/history', getShareHistory)
 shareRoutes.delete('/:id', requireFrontendOrigin, revokeShare)
 
 export default shareRoutes

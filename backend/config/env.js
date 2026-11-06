@@ -32,9 +32,15 @@ if (jwtSecret.length < 32 || jwtSecret.toLowerCase().startsWith('replace-with-')
   throw new Error('JWT_SECRET must be a private value of at least 32 characters, not the example placeholder.')
 }
 
+const shareTokenSecret = required('SHARE_TOKEN_SECRET')
+if (shareTokenSecret.length < 32 || shareTokenSecret.toLowerCase().startsWith('replace-with-') || shareTokenSecret === jwtSecret) {
+  throw new Error('SHARE_TOKEN_SECRET must be a separate private value of at least 32 characters, not the example placeholder.')
+}
+
 export const env = Object.freeze({
   port,
   mongoUri,
   frontendUrl: frontendOrigin,
   jwtSecret,
+  shareTokenSecret,
 })

@@ -42,6 +42,14 @@ export const filesApi = {
     return request('/files/upload', { method: 'POST', body: form })
   },
   get: (id) => request(`/files/${encodeURIComponent(id)}`),
+  download: async (id) => {
+    const response = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(id)}/download`, { credentials: 'include' })
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}))
+      throw new Error(payload.message || 'The file could not be downloaded.')
+    }
+    return response.blob()
+  },
   delete: (id) => request(`/files/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
 
@@ -49,6 +57,7 @@ export const sharesApi = {
   list: () => request('/shares'),
   create: (details) => request('/shares', { method: 'POST', body: details }),
   revoke: (id) => request(`/shares/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  history: (id) => request(`/shares/${encodeURIComponent(id)}/history`),
   publicDetails: (token) => request(`/public/shares/${encodeURIComponent(token)}`),
   access: async (token, password) => {
     const response = await fetch(`${API_BASE_URL}/public/shares/${encodeURIComponent(token)}/access`, {

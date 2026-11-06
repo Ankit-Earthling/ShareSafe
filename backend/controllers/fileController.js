@@ -45,6 +45,13 @@ export async function getFile(request, response) {
   response.json({ file: presentFile(file) })
 }
 
+export async function downloadOwnFile(request, response) {
+  if (!mongoose.isValidObjectId(request.params.id)) throw httpError(404, 'File not found.')
+  const file = await StoredFile.findOne({ _id: request.params.id, owner: request.user.id }).select('+storageKey')
+  if (!file) throw httpError(404, 'File not found.')
+  return streamShareFile(file, response)
+}
+
 export async function deleteFile(request, response) {
   if (!mongoose.isValidObjectId(request.params.id)) throw httpError(404, 'File not found.')
   const file = await StoredFile.findOne({ _id: request.params.id, owner: request.user.id }).select('+storageKey')

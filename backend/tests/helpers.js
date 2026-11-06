@@ -6,6 +6,7 @@ export async function startTestServer(databaseName) {
   process.env.MONGODB_URI = `mongodb://127.0.0.1:27017/${databaseName}`
   process.env.FRONTEND_URL = 'http://localhost:5173'
   process.env.JWT_SECRET = randomUUID() + randomUUID()
+  process.env.SHARE_TOKEN_SECRET = randomUUID() + randomUUID()
 
   const [{ createApp }, database, userModule, fileModule, shareModule, mongooseModule, storage] = await Promise.all([
     import('../app.js'),

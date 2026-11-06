@@ -9,7 +9,7 @@ ShareSafe lets a user keep files in a private account and create temporary, acce
 - Database: MongoDB with Mongoose
 - Security: bcrypt, JWT session cookies, hashed share tokens, Helmet, CORS allow-list, Origin checks, and rate limits
 
-The React frontend and Express API run separately. The frontend uses `VITE_API_BASE_URL` for API calls. The backend stores file contents under `backend/uploads/` using random storage names and keeps metadata in MongoDB. Each file and share belongs to its authenticated owner. A share token is generated once and only its SHA-256 hash is stored. Cookie-authenticated state changes require the configured frontend `Origin`.
+The React frontend and Express API run separately. The frontend uses `VITE_API_BASE_URL` for API calls. The backend stores file contents under `backend/uploads/` using random storage names and keeps metadata in MongoDB. Each file and share belongs to its authenticated owner. A share token is derived from a cryptographically random per-link seed and a dedicated server secret; MongoDB stores the token hash and seed, never the bearer token. Keep `SHARE_TOKEN_SECRET` stable or existing URLs will stop working. Cookie-authenticated state changes require the configured frontend `Origin`.
 
 ## Project structure
 
@@ -60,6 +60,7 @@ Edit `backend/.env`:
 - `MONGODB_URI`: MongoDB URI, such as `mongodb://127.0.0.1:27017/sharesafe`.
 - `FRONTEND_URL`: Exact frontend origin, usually `http://localhost:5173`.
 - `JWT_SECRET`: Private random secret with at least 32 characters. The example placeholder is rejected.
+- `SHARE_TOKEN_SECRET`: Different private random secret with at least 32 characters. Keep it stable to preserve existing share URLs.
 
 Never commit or share `.env`. Start the backend in that terminal:
 
@@ -82,9 +83,10 @@ The frontend defaults to `http://localhost:3000/api`. To change it, copy `fronte
 - Registration, login, logout, and current-user restoration with bcrypt hashes and HttpOnly JWT cookies.
 - Authenticated file uploads up to 10 MB. Supported formats: PDF, PNG, JPEG, GIF, WebP, TXT, and CSV.
 - User-owned file listing, metadata lookup, and deletion. Deleting a file also revokes its associated shares and removes its local contents.
+- Owner-only file details and downloads.
 - Share links with 1–30 day expiry, optional bcrypt-protected passwords, and a maximum of 1,000 downloads.
 - Public recipient page and attachment download; access counts are enforced atomically. Public share attempts are rate-limited.
-- Share owners can list and revoke their links. The dashboard reflects real file and share metadata.
+- Share owners can list, copy, inspect download history, and revoke their links. The dashboard reflects real file and share metadata.
 - Light/dark themes, search, responsive dashboard, and backend connection status.
 - Health endpoint: `GET /api/health`.
 
@@ -101,14 +103,16 @@ Authenticated endpoints use the HttpOnly cookie returned by register/login. File
 | `POST /api/files/upload` | Upload multipart field `file` (10 MB maximum) |
 | `GET /api/files` | List the signed-in user's files |
 | `GET /api/files/:id` | Get owned file metadata |
+| `GET /api/files/:id/download` | Download an owned file |
 | `DELETE /api/files/:id` | Delete an owned file |
 | `POST /api/shares` | Create a share (`fileId`, `expiryDays`, `maxAccesses`, optional `password`) |
 | `GET /api/shares` | List the signed-in user's shares |
+| `GET /api/shares/:id/history` | Get successful download timestamps for an owned share |
 | `DELETE /api/shares/:id` | Revoke an owned share |
 | `GET /api/public/shares/:token` | Check a public share and get safe file details |
 | `POST /api/public/shares/:token/access` | Validate optional password and download the file |
 
-The generated public URL is shown for copying at creation time. Because only a hash is stored, the raw token cannot be recovered to copy an older link after a page reload; its owner can revoke it and create a replacement.
+The backend can reproduce an owner's URL from its random per-link seed and `SHARE_TOKEN_SECRET`, so existing active links remain copyable after reload without storing raw bearer tokens. Keep the dedicated secret stable; changing it invalidates existing links.
 
 ## Checks
 
@@ -130,5 +134,6 @@ npm run build
 ## Still pending
 
 - Email verification, password recovery, and server-side session revocation.
-- Cloud storage, production deployment configuration, and automated frontend interaction tests.
+- Existing links created before token-seed support cannot have their original URL recovered; recreate those links if their original URL is unavailable.
+- Malware scanning, cloud storage, production deployment configuration, and automated frontend interaction tests.
 - Additional safe file types and configurable upload limits.

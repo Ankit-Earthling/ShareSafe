@@ -45,6 +45,9 @@ test('validates uploads, scopes file ownership, lists files, and removes local f
   const ownMetadata = await fetch(`${context.baseUrl}/api/files/${own.payload.file.id}`, { headers: { Cookie: owner.cookie } })
   assert.equal(ownMetadata.status, 200)
   assert.equal((await ownMetadata.json()).file.name, 'sample.pdf')
+  const ownerDownload = await fetch(`${context.baseUrl}/api/files/${own.payload.file.id}/download`, { headers: { Cookie: owner.cookie } })
+  assert.equal(ownerDownload.status, 200)
+  assert.equal(await ownerDownload.text(), '%PDF-1.7\nShareSafe test fixture')
   const stored = await context.StoredFile.findById(own.payload.file.id).select('+storageKey')
   assert.match(stored.storageKey, /^[a-f0-9]{64}$/)
   const physicalPath = context.storage.storagePath(stored.storageKey)
@@ -58,6 +61,8 @@ test('validates uploads, scopes file ownership, lists files, and removes local f
 
   const forbiddenGet = await fetch(`${context.baseUrl}/api/files/${secondOwnerFile.payload.file.id}`, { headers: { Cookie: owner.cookie } })
   assert.equal(forbiddenGet.status, 404)
+  const forbiddenDownload = await fetch(`${context.baseUrl}/api/files/${secondOwnerFile.payload.file.id}/download`, { headers: { Cookie: owner.cookie } })
+  assert.equal(forbiddenDownload.status, 404)
   const forbiddenDelete = await fetch(`${context.baseUrl}/api/files/${secondOwnerFile.payload.file.id}`, {
     method: 'DELETE', headers: { Cookie: owner.cookie, Origin: process.env.FRONTEND_URL },
   })

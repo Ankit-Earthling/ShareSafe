@@ -1,18 +1,16 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcrypt'
 import mongoose from 'mongoose'
 import ShareLink from '../models/ShareLink.js'
 import StoredFile from '../models/StoredFile.js'
 import { streamShareFile } from './fileController.js'
 import { httpError } from '../utils/httpError.js'
+import { createShareTokenSeed, deriveShareToken, hashShareToken } from '../utils/shareToken.js'
+import { env } from '../config/env.js'
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const MIN_PASSWORD_LENGTH = 8
 const MAX_EXPIRY_DAYS = 30
-
-function tokenDigest(token) {
-  return createHash('sha256').update(token).digest('hex')
-}
 
 function shareStatus(share, now = new Date()) {
   if (share.revokedAt) return 'Revoked'
@@ -22,6 +20,7 @@ function shareStatus(share, now = new Date()) {
 }
 
 function presentShare(share, file = share.file) {
+  const token = share.tokenSeed ? deriveShareToken(share.tokenSeed) : null
   return {
     id: share._id.toString(),
     fileId: file?._id?.toString() || share.file?.toString(),
@@ -31,12 +30,13 @@ function presentShare(share, file = share.file) {
     accessCount: share.accessCount,
     status: shareStatus(share),
     passwordProtected: Boolean(share.passwordHash || share.hasPassword),
+    url: token ? new URL(`/share/${token}`, env.frontendUrl).toString() : null,
   }
 }
 
 function validToken(token) {
   if (typeof token !== 'string' || !TOKEN_PATTERN.test(token)) throw httpError(404, 'This sharing link is unavailable.')
-  return tokenDigest(token)
+  return hashShareToken(token)
 }
 
 export async function createShare(request, response) {
@@ -54,23 +54,25 @@ export async function createShare(request, response) {
 
   const file = await StoredFile.findOne({ _id: fileId, owner: request.user.id })
   if (!file) throw httpError(404, 'File not found.')
-  const token = randomBytes(32).toString('base64url')
+  const tokenSeed = createShareTokenSeed()
+  const token = deriveShareToken(tokenSeed)
   const passwordHash = password ? await bcrypt.hash(password, 12) : undefined
   const share = await ShareLink.create({
     owner: request.user.id,
     file: file._id,
-    tokenHash: tokenDigest(token),
+    tokenHash: hashShareToken(token),
+    tokenSeed,
     passwordHash,
     expiresAt: new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000),
     maxAccesses,
   })
-  const publicUrl = new URL(`/share/${token}`, request.get('origin')).toString()
+  const publicUrl = new URL(`/share/${token}`, env.frontendUrl).toString()
   response.status(201).json({ share: presentShare(share, file), url: publicUrl })
 }
 
 export async function listShares(request, response) {
   const shares = await ShareLink.find({ owner: request.user.id })
-    .select('+passwordHash')
+    .select('+passwordHash +tokenSeed')
     .populate({ path: 'file', select: 'originalName' })
     .sort({ createdAt: -1 })
   response.json({ shares: shares.map((share) => presentShare(share)) })
@@ -82,9 +84,16 @@ export async function revokeShare(request, response) {
     { _id: request.params.id, owner: request.user.id, revokedAt: null },
     { $set: { revokedAt: new Date() } },
     { new: true },
-  ).select('+passwordHash')
+  ).select('+passwordHash +tokenSeed')
   if (!share) throw httpError(404, 'Sharing link not found.')
   response.json({ share: presentShare(share) })
+}
+
+export async function getShareHistory(request, response) {
+  if (!mongoose.isValidObjectId(request.params.id)) throw httpError(404, 'Sharing link not found.')
+  const share = await ShareLink.findOne({ _id: request.params.id, owner: request.user.id }).select('accessHistory')
+  if (!share) throw httpError(404, 'Sharing link not found.')
+  response.json({ accesses: share.accessHistory.map((event) => ({ accessedAt: event.accessedAt })) })
 }
 
 async function getAvailableShare(token) {
@@ -122,7 +131,10 @@ export async function accessPublicShare(request, response) {
     revokedAt: null,
     expiresAt: { $gt: new Date() },
     $expr: { $lt: ['$accessCount', '$maxAccesses'] },
-  }, { $inc: { accessCount: 1 } }, { new: true })
+  }, {
+    $inc: { accessCount: 1 },
+    $push: { accessHistory: { accessedAt: new Date() } },
+  }, { new: true })
   if (!consumed) throw httpError(410, 'This sharing link is no longer available.')
 
   const file = await StoredFile.findOne({ _id: consumed.file, owner: consumed.owner }).select('+storageKey')
