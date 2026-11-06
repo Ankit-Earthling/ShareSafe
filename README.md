@@ -1,55 +1,134 @@
-
 # ShareSafe
 
-**Secure. Temporary. Permission-Controlled File Sharing.**
+ShareSafe lets a user keep files in a private account and create temporary, access-limited links for recipients. It is an early development application with local file storage and MongoDB metadata.
 
-ShareSafe is a full-stack web application that enables users to upload files and share them through secure, configurable links.
+## Technology and architecture
 
-Users can control how their files are accessed by setting expiration times, download limits and optional password protection.
+- Frontend: React, Vite, JavaScript, CSS
+- Backend: Node.js, Express, Multer
+- Database: MongoDB with Mongoose
+- Security: bcrypt, JWT session cookies, hashed share tokens, Helmet, CORS allow-list, Origin checks, and rate limits
 
-## Planned Features
+The React frontend and Express API run separately. The frontend uses `VITE_API_BASE_URL` for API calls. The backend stores file contents under `backend/uploads/` using random storage names and keeps metadata in MongoDB. Each file and share belongs to its authenticated owner. A share token is generated once and only its SHA-256 hash is stored. Cookie-authenticated state changes require the configured frontend `Origin`.
 
-- User registration and login
-- Secure file uploads and management
-- Temporary sharing links
-- Configurable link expiration
-- Download limits
-- Optional password protection
-- Link revocation
-- Access tracking
-- User dashboard
+## Project structure
 
-## Technology Stack
+```text
+frontend/
+  src/components/   Dashboard, file, link, and upload components
+  src/context/      Authenticated user state
+  src/pages/        Login, registration, and public share page
+  src/services/     API client
+backend/
+  config/            Environment and MongoDB setup
+  controllers/       Auth, file, share, and health handlers
+  middleware/        Authentication, CSRF Origin check, and errors
+  models/            User, file metadata, and share links
+  routes/            API route groups
+  services/          Authentication and local file storage
+  tests/             MongoDB-backed integration tests
+  uploads/           Private local file contents (ignored by Git)
+  server.js          API entry point
+```
 
-| Component | Technology |
-|---|---|
-| Frontend | React, Vite, JavaScript |
-| Backend | Node.js, Express.js |
-| Database | MongoDB, Mongoose |
-| Authentication | JWT, bcrypt |
-| Version Control | Git, GitHub |
-| Testing | Postman, automated tests |
+## Prerequisites
 
-## Architecture
+- Node.js and npm
+- MongoDB Community Server running locally, or a MongoDB URI the backend can access
 
-React Frontend → Express REST API → MongoDB
+On Windows, check whether MongoDB runs as a service in PowerShell:
 
-Uploaded files will be stored separately from the database.
+```powershell
+Get-Service MongoDB
+```
 
-## Project Status
+If stopped, start PowerShell as an administrator and run `Start-Service MongoDB`. For a manually managed MongoDB installation, start it using that installation's data directory and configuration.
 
-🚧 Under active development.
+## Configure and start
 
-This project is being developed incrementally, with a focus on security, maintainability, testing and practical learning.
+In the backend terminal:
 
-## Future Plans
+```powershell
+cd backend
+npm ci
+Copy-Item .env.example .env
+```
 
-- Automated testing and CI using GitHub Actions
-- Production deployment
-- Cloud file storage
-- Docker containerization
-- Kubernetes deployment using Minikube
+Edit `backend/.env`:
 
-## License
+- `PORT`: API port, usually `3000`.
+- `MONGODB_URI`: MongoDB URI, such as `mongodb://127.0.0.1:27017/sharesafe`.
+- `FRONTEND_URL`: Exact frontend origin, usually `http://localhost:5173`.
+- `JWT_SECRET`: Private random secret with at least 32 characters. The example placeholder is rejected.
 
-To be decided.
+Never commit or share `.env`. Start the backend in that terminal:
+
+```powershell
+npm run dev
+```
+
+In a second terminal, start the frontend:
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+The frontend defaults to `http://localhost:3000/api`. To change it, copy `frontend/.env.example` to `frontend/.env.local` and set `VITE_API_BASE_URL`.
+
+## Implemented features
+
+- Registration, login, logout, and current-user restoration with bcrypt hashes and HttpOnly JWT cookies.
+- Authenticated file uploads up to 10 MB. Supported formats: PDF, PNG, JPEG, GIF, WebP, TXT, and CSV.
+- User-owned file listing, metadata lookup, and deletion. Deleting a file also revokes its associated shares and removes its local contents.
+- Share links with 1–30 day expiry, optional bcrypt-protected passwords, and a maximum of 1,000 downloads.
+- Public recipient page and attachment download; access counts are enforced atomically. Public share attempts are rate-limited.
+- Share owners can list and revoke their links. The dashboard reflects real file and share metadata.
+- Light/dark themes, search, responsive dashboard, and backend connection status.
+- Health endpoint: `GET /api/health`.
+
+## API overview
+
+Authenticated endpoints use the HttpOnly cookie returned by register/login. File/share mutations also require the configured frontend Origin.
+
+| Method and path | Purpose |
+| --- | --- |
+| `POST /api/auth/register` | Create an account |
+| `POST /api/auth/login` | Start a session (10 attempts per 15 minutes per IP) |
+| `POST /api/auth/logout` | Clear the session cookie |
+| `GET /api/auth/me` | Get the signed-in user |
+| `POST /api/files/upload` | Upload multipart field `file` (10 MB maximum) |
+| `GET /api/files` | List the signed-in user's files |
+| `GET /api/files/:id` | Get owned file metadata |
+| `DELETE /api/files/:id` | Delete an owned file |
+| `POST /api/shares` | Create a share (`fileId`, `expiryDays`, `maxAccesses`, optional `password`) |
+| `GET /api/shares` | List the signed-in user's shares |
+| `DELETE /api/shares/:id` | Revoke an owned share |
+| `GET /api/public/shares/:token` | Check a public share and get safe file details |
+| `POST /api/public/shares/:token/access` | Validate optional password and download the file |
+
+The generated public URL is shown for copying at creation time. Because only a hash is stored, the raw token cannot be recovered to copy an older link after a page reload; its owner can revoke it and create a replacement.
+
+## Checks
+
+Backend integration tests use local MongoDB databases named `sharesafe_auth_test`, `sharesafe_files_test`, and `sharesafe_shares_test`. Keep MongoDB running, then run:
+
+```powershell
+cd backend
+npm test
+```
+
+Frontend checks:
+
+```powershell
+cd frontend
+npm run lint
+npm run build
+```
+
+## Still pending
+
+- Email verification, password recovery, and server-side session revocation.
+- Cloud storage, production deployment configuration, and automated frontend interaction tests.
+- Additional safe file types and configurable upload limits.
