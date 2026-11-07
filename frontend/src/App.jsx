@@ -12,6 +12,7 @@ import ShareDialog from './components/ShareDialog.jsx'
 import ShareHistoryDialog from './components/ShareHistoryDialog.jsx'
 import UploadSection from './components/UploadSection.jsx'
 import { useAuth } from './context/useAuth.js'
+import { backendStatusFromHealth } from './services/backendAvailability.js'
 import { filesApi, getHealth, sharesApi } from './services/api.js'
 import './App.css'
 
@@ -89,7 +90,7 @@ function App() {
   useEffect(() => {
     const controller = new AbortController()
     getHealth({ signal: controller.signal })
-      .then((health) => setBackendStatus(health.database === 'connected' ? 'connected' : 'unavailable'))
+      .then((health) => setBackendStatus(backendStatusFromHealth(health)))
       .catch((error) => { if (error.name !== 'AbortError') setBackendStatus('unavailable') })
     return () => controller.abort()
   }, [])
