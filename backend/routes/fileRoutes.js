@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { deleteFile, downloadOwnFile, getFile, listFiles, uploadFile } from '../controllers/fileController.js'
+import { authenticate } from '../middleware/authenticate.js'
+import { authenticatedApiRateLimiter } from '../middleware/rateLimiters.js'
 import { requireFrontendOrigin } from '../middleware/requireFrontendOrigin.js'
 import { uploadSingleFile } from '../services/fileStorage.js'
 import { httpError } from '../utils/httpError.js'
@@ -19,10 +21,10 @@ function parseUpload(request, response, next) {
   })
 }
 
-fileRoutes.post('/upload', requireFrontendOrigin, parseUpload, uploadFile)
-fileRoutes.get('/', listFiles)
-fileRoutes.get('/:id/download', downloadOwnFile)
-fileRoutes.get('/:id', getFile)
-fileRoutes.delete('/:id', requireFrontendOrigin, deleteFile)
+fileRoutes.post('/upload', authenticate, authenticatedApiRateLimiter, requireFrontendOrigin, parseUpload, uploadFile)
+fileRoutes.get('/', authenticate, authenticatedApiRateLimiter, listFiles)
+fileRoutes.get('/:id/download', authenticate, authenticatedApiRateLimiter, downloadOwnFile)
+fileRoutes.get('/:id', authenticate, authenticatedApiRateLimiter, getFile)
+fileRoutes.delete('/:id', authenticate, authenticatedApiRateLimiter, requireFrontendOrigin, deleteFile)
 
 export default fileRoutes
