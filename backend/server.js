@@ -1,5 +1,5 @@
 import { connectDatabase } from './config/database.js'
-import { configurationPresence, startupFailureCategory } from './services/startupDiagnostics.js'
+import { configurationPresence, sanitizeMongoFailure, startupFailureCategory } from './services/startupDiagnostics.js'
 
 function logConfigurationPresence() {
   const presence = configurationPresence(process.env)
@@ -40,6 +40,9 @@ async function startServer() {
   } catch (error) {
     logConfigurationPresence()
     console.error(`ShareSafe startup failed. Category: ${startupFailureCategory(phase, error)}.`)
+    if (phase === 'database-connection') {
+      console.error(`MongoDB startup diagnostic: ${JSON.stringify(sanitizeMongoFailure(error))}`)
+    }
     if (phase === 'configuration-validation' && error instanceof Error) {
       // env.js throws fixed validation messages that name settings but never echo values.
       console.error(`Configuration validation: ${error.message}`)
