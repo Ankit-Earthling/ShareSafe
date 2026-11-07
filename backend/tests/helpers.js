@@ -1,7 +1,7 @@
 import { once } from 'node:events'
 import { randomUUID } from 'node:crypto'
 
-export async function startTestServer(databaseName, { scanFile = async () => 'clean', storageQuotaBytes } = {}) {
+export async function startTestServer(databaseName, { scanFile = async () => 'clean', storageQuotaBytes, readinessHandler } = {}) {
   process.env.PORT = '3100'
   process.env.MONGODB_URI = `mongodb://127.0.0.1:27017/${databaseName}`
   process.env.FRONTEND_URL = 'http://localhost:5173'
@@ -27,7 +27,7 @@ export async function startTestServer(databaseName, { scanFile = async () => 'cl
   const ShareLink = shareModule.default
   await database.connectDatabase(process.env.MONGODB_URI)
   await Promise.all([User.init(), StoredFile.init(), ShareLink.init()])
-  const server = createApp({ scanFile }).listen(0)
+  const server = createApp({ scanFile, readinessHandler }).listen(0)
   await once(server, 'listening')
   const baseUrl = `http://127.0.0.1:${server.address().port}`
 

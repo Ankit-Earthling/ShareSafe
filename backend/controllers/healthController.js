@@ -2,14 +2,18 @@ import { databaseIsConnected } from '../config/database.js'
 import { env } from '../config/env.js'
 import { backblazeB2Storage } from '../services/storage/backblazeB2Client.js'
 
-export function createHealthHandler({
+export function getHealth(_request, response) {
+  return response.status(200).json({ status: 'ok' })
+}
+
+export function createReadinessHandler({
   isDatabaseConnected = databaseIsConnected,
   storageDriver = env.storageDriver,
   malwareScanner = env.malwareScanner,
   storageAdapter = backblazeB2Storage,
   storageTimeoutMs = 2500,
 } = {}) {
-  return async function getHealth(_request, response) {
+  return async function getReadiness(_request, response) {
     const databaseConnected = isDatabaseConnected()
     let storage = storageDriver === 'local' ? 'local' : 'disconnected'
     if (databaseConnected && storageAdapter) {
@@ -34,4 +38,4 @@ export function createHealthHandler({
   }
 }
 
-export const getHealth = createHealthHandler()
+export const getReadiness = createReadinessHandler()
