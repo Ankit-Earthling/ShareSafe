@@ -13,12 +13,12 @@ export default function Sidebar({ active, onNavigate, user, onLogout }) {
       <span>share<span className="brand-accent">safe</span></span>
     </a>
     <nav className="main-nav" aria-label="Main navigation">
-      {navItems.map((item) => <button key={item.label} type="button" aria-current={active === item.label ? 'page' : undefined} className={`nav-item ${active === item.label ? 'selected' : ''}`} onClick={() => onNavigate(item.label)}>
+      {navItems.map((item) => <button key={item.label} type="button" aria-label={item.label} aria-current={active === item.label ? 'page' : undefined} className={`nav-item ${active === item.label ? 'selected' : ''}`} onClick={() => onNavigate(item.label)}>
         <Icon name={item.icon} size={20} /><span>{item.label}</span>
       </button>)}
     </nav>
     <div className="sidebar-bottom">
-      <button type="button" aria-current={active === 'Settings' ? 'page' : undefined} className={`nav-item ${active === 'Settings' ? 'selected' : ''}`} onClick={() => onNavigate('Settings')}>
+      <button type="button" aria-label="Settings" aria-current={active === 'Settings' ? 'page' : undefined} className={`nav-item ${active === 'Settings' ? 'selected' : ''}`} onClick={() => onNavigate('Settings')}>
         <Icon name="settings" size={20} /><span>Settings</span>
       </button>
       <div className="profile">

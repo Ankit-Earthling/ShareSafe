@@ -7,6 +7,7 @@ const tokenOptions = {
   expiresIn: '1h',
   issuer: 'sharesafe-api',
   audience: 'sharesafe-frontend',
+  algorithm: 'HS256',
 }
 
 export function createAuthToken(userId) {
@@ -17,6 +18,7 @@ export function verifyAuthToken(token) {
   return jwt.verify(token, env.jwtSecret, {
     issuer: tokenOptions.issuer,
     audience: tokenOptions.audience,
+    algorithms: ['HS256'],
   })
 }
 

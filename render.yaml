@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: sharesafe-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: STORAGE_DRIVER
+        value: b2
+      - key: MALWARE_SCANNER
+        value: bouncer
+      - key: DEFAULT_STORAGE_QUOTA_BYTES
+        value: "524288000"
+      - key: MONGODB_URI
+        sync: false
+      - key: FRONTEND_URL
+        value: https://sharesafe-web.onrender.com
+      - key: JWT_SECRET
+        sync: false
+      - key: SHARE_TOKEN_SECRET
+        sync: false
+      - key: BOUNCER_API_KEY
+        sync: false
+      - key: B2_ENDPOINT
+        sync: false
+      - key: B2_REGION
+        sync: false
+      - key: B2_BUCKET
+        sync: false
+      - key: B2_KEY_ID
+        sync: false
+      - key: B2_APPLICATION_KEY
+        sync: false
+
+  - type: web
+    name: sharesafe-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: /api
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://sharesafe-api.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html

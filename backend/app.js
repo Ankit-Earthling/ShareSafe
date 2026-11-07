@@ -7,9 +7,11 @@ import { env } from './config/env.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFound } from './middleware/notFound.js'
 import apiRoutes from './routes/apiRoutes.js'
+import { scanStoredFile } from './services/scanners/index.js'
 
-export function createApp() {
+export function createApp({ scanFile = scanStoredFile } = {}) {
   const app = express()
+  app.locals.scanFile = scanFile
 
   app.disable('x-powered-by')
   app.use(helmet())
@@ -18,6 +20,7 @@ export function createApp() {
     credentials: true,
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['X-ShareSafe-Link-Id', 'X-ShareSafe-Accessed-At', 'X-ShareSafe-Viewer'],
   }))
   app.use(express.json({ limit: '16kb' }))
   app.use(cookieParser())

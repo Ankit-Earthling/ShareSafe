@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { env } from '../config/env.js'
 
 const userSchema = new mongoose.Schema({
   name: {
@@ -21,6 +22,14 @@ const userSchema = new mongoose.Schema({
     required: true,
     select: false,
   },
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user',
+    required: true,
+  },
+  storageQuotaBytes: { type: Number, required: true, default: env.defaultStorageQuotaBytes, min: 1 },
+  usedStorageBytes: { type: Number, required: true, default: 0, min: 0 },
 }, {
   timestamps: true,
   versionKey: false,

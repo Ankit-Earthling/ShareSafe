@@ -1,4 +1,3 @@
-import { createReadStream } from 'node:fs'
 import { mkdir, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,16 +43,12 @@ export function storagePath(storageKey) {
   return resolvedPath
 }
 
-export async function removeStoredFile(storageKey) {
+export async function removeStagedFile(storageKey) {
   try {
     await unlink(storagePath(storageKey))
   } catch (error) {
     if (error.code !== 'ENOENT') throw error
   }
-}
-
-export function openStoredFile(storageKey) {
-  return createReadStream(storagePath(storageKey))
 }
 
 export async function validateStoredFile(file) {

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { deleteFile, getFile, listFiles, uploadFile } from '../controllers/fileController.js'
+import { deleteFile, downloadOwnFile, getFile, listFiles, uploadFile } from '../controllers/fileController.js'
 import { requireFrontendOrigin } from '../middleware/requireFrontendOrigin.js'
 import { uploadSingleFile } from '../services/fileStorage.js'
 import { httpError } from '../utils/httpError.js'
@@ -21,6 +21,7 @@ function parseUpload(request, response, next) {
 
 fileRoutes.post('/upload', requireFrontendOrigin, parseUpload, uploadFile)
 fileRoutes.get('/', listFiles)
+fileRoutes.get('/:id/download', downloadOwnFile)
 fileRoutes.get('/:id', getFile)
 fileRoutes.delete('/:id', requireFrontendOrigin, deleteFile)
 

@@ -10,7 +10,7 @@ export default function DashboardHeader({ title, search, onSearch, onUpload, the
       <button className="theme-toggle" type="button" onClick={onToggleTheme} aria-label={`Switch to ${nextTheme} theme`}>
         <Icon name={theme === 'light' ? 'moon' : 'sun'} size={19} /><span>{theme === 'light' ? 'Dark' : 'Light'}</span>
       </button>
-      <button className="button-primary" onClick={onUpload}><Icon name="upload" size={18} />Upload files</button>
+      <button className="button-primary" type="button" onClick={onUpload}><Icon name="upload" size={18} />Upload files</button>
     </div>
   </header>
 }
