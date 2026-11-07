@@ -3,6 +3,7 @@ services:
     name: sharesafe-api
     runtime: node
     plan: free
+    region: virginia
     rootDir: backend
     buildCommand: npm ci
     startCommand: npm start
