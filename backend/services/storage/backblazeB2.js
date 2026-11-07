@@ -39,8 +39,11 @@ export function createBackblazeB2Storage({ client, bucket }) {
       }
     },
 
-    async check() {
-      await client.send(new HeadBucketCommand({ Bucket: bucket }))
+    async check({ signal } = {}) {
+      await client.send(
+        new HeadBucketCommand({ Bucket: bucket }),
+        signal ? { abortSignal: signal } : undefined,
+      )
     },
   }
 }

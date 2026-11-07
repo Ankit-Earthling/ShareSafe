@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import { after, test } from 'node:test'
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { storagePath } from '../services/fileStorage.js'
 import { createBackblazeB2Storage } from '../services/storage/backblazeB2.js'
 import { migrateLocalObjectToB2 } from '../services/storage/migration.js'
@@ -62,6 +62,23 @@ test('B2 adapter writes, verifies, streams, and deletes private objects with sta
   assert.equal(commands[0].input.Key, storageKey)
   await storage.removeFile(storageKey)
   assert.equal(objects.size, 0)
+})
+
+test('B2 health check forwards an abort signal to the SDK request', async () => {
+  const controller = new AbortController()
+  let receivedSignal
+  const storage = createBackblazeB2Storage({
+    bucket: 'sharesafe-private-test',
+    client: {
+      async send(command, options) {
+        assert.ok(command instanceof HeadBucketCommand)
+        receivedSignal = options.abortSignal
+      },
+    },
+  })
+
+  await storage.check({ signal: controller.signal })
+  assert.equal(receivedSignal, controller.signal)
 })
 
 test('local-to-B2 migration activates only after size and SHA-256 verification', async () => {
