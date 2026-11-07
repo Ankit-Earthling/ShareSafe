@@ -7,6 +7,7 @@ import { env } from './config/env.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { notFound } from './middleware/notFound.js'
 import apiRoutes from './routes/apiRoutes.js'
+import healthRoutes from './routes/healthRoutes.js'
 import { scanStoredFile } from './services/scanners/index.js'
 
 export function createApp({ scanFile = scanStoredFile } = {}) {
@@ -22,6 +23,8 @@ export function createApp({ scanFile = scanStoredFile } = {}) {
     allowedHeaders: ['Content-Type', 'Authorization'],
     exposedHeaders: ['X-ShareSafe-Link-Id', 'X-ShareSafe-Accessed-At', 'X-ShareSafe-Viewer'],
   }))
+  // Keep the unauthenticated Render probe ahead of the generic API rate limiter.
+  app.use('/api', healthRoutes)
   app.use(express.json({ limit: '16kb' }))
   app.use(cookieParser())
   app.use('/api', rateLimit({
