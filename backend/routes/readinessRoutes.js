@@ -1,9 +1,10 @@
 import { Router } from 'express'
 import { getReadiness } from '../controllers/healthController.js'
 
-export function createReadinessRoutes(handler = getReadiness) {
+export function createReadinessRoutes(handler = getReadiness, rateLimiter) {
   const readinessRoutes = Router()
-  readinessRoutes.get('/ready', handler)
+  if (rateLimiter) readinessRoutes.get('/ready', rateLimiter, handler)
+  else readinessRoutes.get('/ready', handler)
   return readinessRoutes
 }
 

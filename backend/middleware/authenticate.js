@@ -1,6 +1,11 @@
 import mongoose from 'mongoose'
 import { getUserById } from '../services/authService.js'
+import { unauthenticatedApiRateLimiter } from './rateLimiters.js'
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '../utils/authToken.js'
+
+function rejectAuthentication(request, response, status, message) {
+  return unauthenticatedApiRateLimiter(request, response, () => response.status(status).json({ message }))
+}
 
 function getRequestToken(request) {
   const authorization = request.get('authorization')
@@ -13,21 +18,21 @@ function getRequestToken(request) {
 
 export async function authenticate(request, response, next) {
   const token = getRequestToken(request)
-  if (!token) return response.status(401).json({ message: 'Authentication required.' })
+  if (!token) return rejectAuthentication(request, response, 401, 'Authentication required.')
 
   let payload
   try {
     payload = verifyAuthToken(token)
   } catch {
-    return response.status(401).json({ message: 'Invalid or expired authentication token.' })
+    return rejectAuthentication(request, response, 401, 'Invalid or expired authentication token.')
   }
 
   if (typeof payload.sub !== 'string' || !mongoose.isValidObjectId(payload.sub)) {
-    return response.status(401).json({ message: 'Invalid or expired authentication token.' })
+    return rejectAuthentication(request, response, 401, 'Invalid or expired authentication token.')
   }
 
   const user = await getUserById(payload.sub)
-  if (!user) return response.status(401).json({ message: 'Invalid or expired authentication token.' })
+  if (!user) return rejectAuthentication(request, response, 401, 'Invalid or expired authentication token.')
 
   request.user = user
   return next()

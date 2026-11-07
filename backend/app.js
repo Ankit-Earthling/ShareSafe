@@ -1,7 +1,6 @@
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import express from 'express'
-import rateLimit from 'express-rate-limit'
 import helmet from 'helmet'
 import { env } from './config/env.js'
 import { errorHandler } from './middleware/errorHandler.js'
@@ -11,6 +10,7 @@ import healthRoutes from './routes/healthRoutes.js'
 import { createReadinessRoutes } from './routes/readinessRoutes.js'
 import { getReadiness } from './controllers/healthController.js'
 import { scanStoredFile } from './services/scanners/index.js'
+import { publicApiRateLimiter } from './middleware/rateLimiters.js'
 
 export function createApp({ scanFile = scanStoredFile, readinessHandler = getReadiness } = {}) {
   const app = express()
@@ -29,13 +29,7 @@ export function createApp({ scanFile = scanStoredFile, readinessHandler = getRea
   app.use('/api', healthRoutes)
   app.use(express.json({ limit: '16kb' }))
   app.use(cookieParser())
-  app.use('/api', rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 120,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
-  }))
-  app.use('/api', createReadinessRoutes(readinessHandler))
+  app.use('/api', createReadinessRoutes(readinessHandler, publicApiRateLimiter))
   app.use('/api', apiRoutes)
   app.use(notFound)
   app.use(errorHandler)

@@ -14,24 +14,10 @@ import UploadSection from './components/UploadSection.jsx'
 import { useAuth } from './context/useAuth.js'
 import { backendStatusFromHealth } from './services/backendAvailability.js'
 import { filesApi, getHealth, sharesApi } from './services/api.js'
+import { authRedirectForPage, pageFromPath, pagePaths } from './services/routing.js'
 import './App.css'
 
-const pagePaths = {
-  Dashboard: '/',
-  'My Files': '/files',
-  'Shared Links': '/links',
-  Settings: '/settings',
-  Login: '/login',
-  Register: '/register',
-}
 const authPages = ['Login', 'Register']
-
-function pageFromPath(pathname) {
-  const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
-  if (normalizedPath === '/dashboard') return 'Dashboard'
-  if (/^\/share\/[^/]+$/.test(normalizedPath)) return 'Public Share'
-  return Object.entries(pagePaths).find(([, path]) => path === normalizedPath)?.[0] || 'Dashboard'
-}
 
 function App() {
   const { user, loading: authLoading, login, register, logout } = useAuth()
@@ -89,18 +75,21 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController()
-    getHealth({ signal: controller.signal })
-      .then((health) => setBackendStatus(backendStatusFromHealth(health)))
-      .catch((error) => { if (error.name !== 'AbortError') setBackendStatus('unavailable') })
-    return () => controller.abort()
+    let active = true
+    const checkHealth = () => getHealth({ signal: controller.signal })
+      .then((health) => { if (active) setBackendStatus(backendStatusFromHealth(health)) })
+      .catch((error) => { if (active && error.name !== 'AbortError') setBackendStatus('unavailable') })
+    void checkHealth()
+    const retryTimer = window.setInterval(() => { void checkHealth() }, 30000)
+    return () => { active = false; window.clearInterval(retryTimer); controller.abort() }
   }, [])
 
   useEffect(() => {
     if (authLoading) return
     // Auth restoration may change the URL and React page state together.
+    const redirectPage = authRedirectForPage(active, user)
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!user && active !== 'Public Share' && !authPages.includes(active)) navigate('Login', true)
-    else if (user && authPages.includes(active)) navigate('Dashboard', true)
+    if (redirectPage) navigate(redirectPage, true)
   }, [active, authLoading, navigate, user])
 
   useEffect(() => {
@@ -213,6 +202,15 @@ function App() {
 
   if (authLoading) {
     return <div className="app-shell auth-loading" data-theme={theme}><p>Checking your account…</p></div>
+  }
+
+  if (active === 'Not Found') {
+    return <div className="app-shell auth-shell" data-theme={theme}>
+      <main className="auth-page"><section className="auth-card">
+        <div className="auth-heading"><h1>Page not found</h1><p>This ShareSafe page does not exist.</p></div>
+        <button className="button-primary auth-submit" type="button" onClick={() => navigate(user ? 'Dashboard' : 'Login')}>Go to ShareSafe</button>
+      </section></main>
+    </div>
   }
 
   if (!user || authPages.includes(active)) {

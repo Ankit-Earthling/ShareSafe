@@ -94,8 +94,18 @@ test('registers, logs in, protects routes, rejects invalid credentials, and logs
   })
   assert.equal(invalidTokenMe.status, 401)
 
-  const protectedRoute = await fetch(`${baseUrl}/api/private/data`)
+  const protectedRoute = await fetch(`${baseUrl}/api/files`)
   assert.equal(protectedRoute.status, 401)
+
+  const unknownApiRoute = await fetch(`${baseUrl}/api/no-such-route`)
+  assert.equal(unknownApiRoute.status, 404)
+  assert.match(unknownApiRoute.headers.get('content-type') || '', /application\/json/)
+  assert.deepEqual(await unknownApiRoute.json(), { message: 'Route not found.' })
+
+  const unknownNestedApiRoute = await fetch(`${baseUrl}/api/files/unknown/operation`)
+  assert.equal(unknownNestedApiRoute.status, 404)
+  assert.match(unknownNestedApiRoute.headers.get('content-type') || '', /application\/json/)
+  assert.deepEqual(await unknownNestedApiRoute.json(), { message: 'Route not found.' })
 
   const login = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST',
@@ -118,8 +128,29 @@ test('registers, logs in, protects routes, rejects invalid credentials, and logs
     headers: { Cookie: sessionCookie },
   })
   assert.equal(authorizedUnknownRoute.status, 404)
+  assert.match(authorizedUnknownRoute.headers.get('content-type') || '', /application\/json/)
+  assert.deepEqual(await authorizedUnknownRoute.json(), { message: 'Route not found.' })
 
   const logout = await fetch(`${baseUrl}/api/auth/logout`, { method: 'POST', headers: { Origin: process.env.FRONTEND_URL } })
   assert.equal(logout.status, 200)
   assert.match(logout.headers.get('set-cookie') || '', /Expires=Thu, 01 Jan 1970/i)
+})
+
+test('unauthenticated protected-route attempts share a peer limit despite spoofed forwarding headers', async () => {
+  let limitReached = false
+  for (let attempt = 0; attempt < 130; attempt += 1) {
+    const response = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: {
+        Authorization: 'Bearer invalid-token',
+        'X-Forwarded-For': `192.0.2.${(attempt % 254) + 1}`,
+        'CF-Connecting-IP': `198.51.100.${(attempt % 254) + 1}`,
+      },
+    })
+    if (response.status === 429) limitReached = true
+    else {
+      assert.equal(response.status, 401)
+      assert.equal(limitReached, false, 'once limited, spoofed client IP headers must not create another bucket')
+    }
+  }
+  assert.equal(limitReached, true)
 })
