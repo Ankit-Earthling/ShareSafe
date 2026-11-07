@@ -37,10 +37,58 @@ if (shareTokenSecret.length < 32 || shareTokenSecret.toLowerCase().startsWith('r
   throw new Error('SHARE_TOKEN_SECRET must be a separate private value of at least 32 characters, not the example placeholder.')
 }
 
+const defaultStorageQuotaBytes = Number(process.env.DEFAULT_STORAGE_QUOTA_BYTES || 524288000)
+if (!Number.isSafeInteger(defaultStorageQuotaBytes) || defaultStorageQuotaBytes < 1) {
+  throw new Error('DEFAULT_STORAGE_QUOTA_BYTES must be a positive safe integer.')
+}
+const clamavCommand = process.env.CLAMAV_COMMAND?.trim() || 'clamscan'
+const malwareScanner = (process.env.MALWARE_SCANNER || 'clamav').trim().toLowerCase()
+if (!['clamav', 'bouncer'].includes(malwareScanner)) {
+  throw new Error('MALWARE_SCANNER must be either clamav or bouncer.')
+}
+const bouncerApiKey = process.env.BOUNCER_API_KEY?.trim() || ''
+if (malwareScanner === 'bouncer' && !bouncerApiKey) {
+  throw new Error('BOUNCER_API_KEY is required when MALWARE_SCANNER=bouncer.')
+}
+const storageDriver = (process.env.STORAGE_DRIVER || 'local').trim().toLowerCase()
+if (!['local', 'b2'].includes(storageDriver)) {
+  throw new Error('STORAGE_DRIVER must be either local or b2.')
+}
+if (process.env.RENDER === 'true' && storageDriver !== 'b2') {
+  throw new Error('STORAGE_DRIVER=b2 is required on Render because its local filesystem is ephemeral.')
+}
+const b2Endpoint = process.env.B2_ENDPOINT?.trim() || ''
+const b2Region = process.env.B2_REGION?.trim() || ''
+const b2Bucket = process.env.B2_BUCKET?.trim() || ''
+const b2KeyId = process.env.B2_KEY_ID?.trim() || ''
+const b2ApplicationKey = process.env.B2_APPLICATION_KEY?.trim() || ''
+if (storageDriver === 'b2') {
+  let endpoint
+  try {
+    endpoint = new URL(b2Endpoint)
+    if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error()
+  } catch {
+    throw new Error('B2_ENDPOINT must be a valid HTTPS endpoint URL without credentials, query, or fragment.')
+  }
+  if (!b2Region || !b2Bucket || !b2KeyId || !b2ApplicationKey) {
+    throw new Error('B2_REGION, B2_BUCKET, B2_KEY_ID, and B2_APPLICATION_KEY are required when STORAGE_DRIVER=b2.')
+  }
+}
+
 export const env = Object.freeze({
   port,
   mongoUri,
   frontendUrl: frontendOrigin,
   jwtSecret,
   shareTokenSecret,
+  defaultStorageQuotaBytes,
+  clamavCommand,
+  malwareScanner,
+  bouncerApiKey,
+  storageDriver,
+  b2Endpoint,
+  b2Region,
+  b2Bucket,
+  b2KeyId,
+  b2ApplicationKey,
 })

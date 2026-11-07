@@ -39,10 +39,20 @@ button { cursor: pointer; }
 h1, h2, p { margin: 0; }
 h1 { color: var(--text); font: 700 32px/1.25 'Manrope', sans-serif; letter-spacing: -.7px; }
 .welcome-row p { margin-top: 8px; color: var(--muted); font-size: 15px; }
-.stats-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-bottom: 25px; }
+.stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-bottom: 25px; }
 .stat-card { min-height: 120px; padding: 20px 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 3px 10px #29355708; }
 .stat-card h2 { color: var(--muted); font: 600 16px 'DM Sans', sans-serif; }
 .stat-value { margin-top: 13px; color: var(--text); font: 700 29px/1.1 'Manrope', sans-serif; }
+.stat-detail { margin-top: 9px; color: var(--muted); font-size: 13px; }
+.scan-status { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; text-transform: capitalize; }
+.scan-clean { color: #348a69; }
+.scan-infected { color: #b65c59; }
+.scan-suspicious { color: #b65c59; }
+.scan-failed, .scan-pending { color: #a56f31; }
+.view-only-badge { padding: 6px 12px; color: #5c52b9; border-radius: 20px; background: #f0efff; font-size: 13px; font-weight: 700; }
+.pdf-preview-wrap { position: relative; width: 100%; height: min(70vh, 780px); overflow: hidden; border: 1px solid var(--border); border-radius: 10px; }
+.pdf-preview-wrap iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.pdf-watermark { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #13172280; background: repeating-linear-gradient(-30deg, transparent 0 150px, #ffffff14 150px 250px); font-size: clamp(12px, 2vw, 18px); font-weight: 700; text-align: center; text-shadow: 0 1px 2px #fff9; pointer-events: none; overflow-wrap: anywhere; }
 .upload-panel { display: flex; min-height: 240px; align-items: center; flex-direction: column; justify-content: center; gap: 12px; padding: 28px; margin-bottom: 27px; border: 1.5px dashed var(--upload-border); border-radius: 13px; background: var(--surface); text-align: center; }
 .upload-icon { display: grid; width: 54px; height: 54px; place-items: center; color: var(--accent); border-radius: 16px; background: var(--accent-soft); }
 .upload-panel h2, .section-heading h2 { color: var(--text); font: 700 22px/1.25 'Manrope', sans-serif; }
@@ -162,6 +172,7 @@ th:last-child { width: auto; }
 table { min-width: 760px; }
 
 @media (max-width: 1000px) {
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sidebar { width: 220px; }
   .main-area { margin-left: 220px; }
   .topbar { padding-inline: 24px; }

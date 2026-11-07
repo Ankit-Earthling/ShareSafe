@@ -18,11 +18,11 @@ before(async () => {
 
 after(async () => context?.close())
 
-async function createShare({ fileId = file.id, password, expiryDays = 7, maxAccesses = 10 } = {}) {
+async function createShare({ fileId = file.id, password, expiryDays = 7, maxAccesses = 10, permission = 'allowDownload' } = {}) {
   return fetch(`${context.baseUrl}/api/shares`, {
     method: 'POST',
     headers: { Cookie: owner.cookie, Origin: process.env.FRONTEND_URL, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fileId, expiryDays, maxAccesses, ...(password ? { password } : {}) }),
+    body: JSON.stringify({ fileId, expiryDays, maxAccesses, permission, ...(password ? { password } : {}) }),
   })
 }
 
@@ -119,4 +119,57 @@ test('creates secure links, checks passwords and expiry, enforces limits atomica
   assert.equal('passwordHash' in relisted, false)
   assert.equal(stored.tokenHash, (await import('../utils/shareToken.js')).hashShareToken(token))
   assert.notEqual(stored.tokenHash, token)
+})
+
+test('enforces view-only links and returns server-generated PDF watermark metadata', async () => {
+  const created = await createShare({ permission: 'viewOnly', maxAccesses: 2 })
+  assert.equal(created.status, 201)
+  const payload = await created.json()
+  assert.equal(payload.share.permission, 'viewOnly')
+  const token = new URL(payload.url).pathname.split('/').pop()
+  const detailsResponse = await fetch(`${context.baseUrl}/api/public/shares/${token}`)
+  const details = await detailsResponse.json()
+  assert.equal(details.permission, 'viewOnly')
+  assert.equal(details.previewSupported, true)
+
+  const directDownload = await accessShare(token)
+  assert.equal(directDownload.status, 403)
+  assert.equal((await context.ShareLink.findById(payload.share.id)).accessCount, 0)
+
+  const preview = await fetch(`${context.baseUrl}/api/public/shares/${token}/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  assert.equal(preview.status, 200)
+  assert.equal(preview.headers.get('content-type'), 'application/pdf')
+  assert.match(preview.headers.get('content-disposition'), /^inline;/)
+  assert.equal(preview.headers.get('x-sharesafe-link-id'), payload.share.id)
+  assert.ok(Number.isFinite(Date.parse(preview.headers.get('x-sharesafe-accessed-at'))))
+  assert.equal(preview.headers.get('x-sharesafe-viewer'), 'Anonymous viewer')
+  assert.equal(await preview.text(), '%PDF-1.7\nShareSafe test fixture')
+  assert.equal((await context.ShareLink.findById(payload.share.id)).accessCount, 1)
+
+  const secondPreview = await fetch(`${context.baseUrl}/api/public/shares/${token}/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: owner.cookie }, body: '{}' })
+  assert.equal(secondPreview.status, 200)
+  assert.equal(secondPreview.headers.get('x-sharesafe-viewer'), owner.user.email)
+  const exhaustedDownload = await accessShare(token)
+  assert.equal(exhaustedDownload.status, 410)
+})
+
+test('normal downloadable links remain downloadable and non-PDF view-only links have no download fallback', async () => {
+  const normalCreated = await createShare()
+  const normal = await normalCreated.json()
+  const normalToken = new URL(normal.url).pathname.split('/').pop()
+  const normalAccess = await accessShare(normalToken)
+  assert.equal(normalAccess.status, 200)
+  assert.match(normalAccess.headers.get('content-disposition'), /^attachment;/)
+
+  const txt = await context.upload(owner.cookie, { name: 'readme.txt', contents: 'view only text', type: 'text/plain' })
+  assert.equal(txt.response.status, 201)
+  const unsupportedCreated = await createShare({ fileId: txt.payload.file.id, permission: 'viewOnly' })
+  const unsupported = await unsupportedCreated.json()
+  const unsupportedToken = new URL(unsupported.url).pathname.split('/').pop()
+  const details = await fetch(`${context.baseUrl}/api/public/shares/${unsupportedToken}`)
+  assert.equal((await details.json()).previewSupported, false)
+  const preview = await fetch(`${context.baseUrl}/api/public/shares/${unsupportedToken}/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  assert.equal(preview.status, 415)
+  const direct = await accessShare(unsupportedToken)
+  assert.equal(direct.status, 403)
 })

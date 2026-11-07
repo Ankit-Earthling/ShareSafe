@@ -12,9 +12,9 @@ export default function RecentFiles({ files, loading, onViewAll, onShare, onDown
     <div className="section-heading"><div><h2>Recent files</h2><p>Your latest uploads</p></div>{showViewAll && <button className="view-all" type="button" onClick={onViewAll}>View all</button>}</div>
     <div className="table-wrap"><table><thead><tr><th>File name</th><th>Size</th><th>Date added</th><th>Actions</th></tr></thead>
       <tbody>{files.length === 0 ? <tr><td colSpan="4" className="empty-state">{loading ? 'Loading your files…' : 'No files yet. Upload one to get started.'}</td></tr> : files.map((file) => <tr key={file.id}>
-        <td><div className="file-name"><span className="file-type">{fileType(file)}</span><button type="button" className="file-details-button" onClick={() => onDetails?.(file)}>{file.name}</button></div></td>
+        <td><div className="file-name"><span className="file-type">{fileType(file)}</span><div><button type="button" className="file-details-button" onClick={() => onDetails?.(file)}>{file.name}</button><small className={`scan-status scan-${file.scanStatus || 'clean'}`}>{(file.scanStatus || 'clean') === 'clean' ? 'Scanned clean' : file.scanStatus === 'suspicious' ? 'Scan suspicious · blocked' : `Scan ${file.scanStatus}`}</small></div></div></td>
         <td className="muted-cell">{displaySize(file.size)}</td><td className="muted-cell">{new Date(file.uploadedAt).toLocaleDateString()}</td>
-        <td><div className="link-actions"><button type="button" className="table-action" onClick={() => onShare?.(file)}>Share</button><button type="button" className="table-action" onClick={() => onDownload?.(file)}>Download</button><button type="button" className="table-action revoke-action" onClick={() => onDelete?.(file)}>Delete</button></div></td>
+        <td><div className="link-actions"><button type="button" className="table-action" disabled={file.scanStatus !== 'clean' && file.scanStatus !== undefined} onClick={() => onShare?.(file)}>Share</button><button type="button" className="table-action" disabled={file.scanStatus !== 'clean' && file.scanStatus !== undefined} onClick={() => onDownload?.(file)}>Download</button><button type="button" className="table-action revoke-action" onClick={() => onDelete?.(file)}>Delete</button></div></td>
       </tr>)}</tbody>
     </table></div>
   </section>

@@ -73,4 +73,26 @@ export const sharesApi = {
     }
     return response.blob()
   },
+  preview: async (token, password) => {
+    const response = await fetch(`${API_BASE_URL}/public/shares/${encodeURIComponent(token)}/preview`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/pdf', 'Content-Type': 'application/json' },
+      body: JSON.stringify(password ? { password } : {}),
+    })
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}))
+      const error = new Error(payload.message || 'The shared file could not be previewed.')
+      error.status = response.status
+      throw error
+    }
+    return {
+      blob: await response.blob(),
+      watermark: {
+        viewer: response.headers.get('X-ShareSafe-Viewer') || 'Anonymous viewer',
+        linkId: response.headers.get('X-ShareSafe-Link-Id') || 'Unavailable',
+        accessedAt: response.headers.get('X-ShareSafe-Accessed-At') || new Date().toISOString(),
+      },
+    }
+  },
 }

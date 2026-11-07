@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt'
 import mongoose from 'mongoose'
 import ShareLink from '../models/ShareLink.js'
 import StoredFile from '../models/StoredFile.js'
-import { streamShareFile } from './fileController.js'
+import { streamPreviewFile, streamShareFile } from './fileController.js'
 import { httpError } from '../utils/httpError.js'
 import { createShareTokenSeed, deriveShareToken, hashShareToken } from '../utils/shareToken.js'
 import { env } from '../config/env.js'
@@ -27,6 +27,7 @@ function presentShare(share, file = share.file) {
     name: file?.originalName || 'Deleted file',
     expiresAt: share.expiresAt,
     maxAccesses: share.maxAccesses,
+    permission: share.permission || 'allowDownload',
     accessCount: share.accessCount,
     status: shareStatus(share),
     passwordProtected: Boolean(share.passwordHash || share.hasPassword),
@@ -40,7 +41,8 @@ function validToken(token) {
 }
 
 export async function createShare(request, response) {
-  const { fileId, expiryDays = 7, maxAccesses = 10, password } = request.body || {}
+  const { fileId, expiryDays = 7, maxAccesses = 10, password, permission = 'allowDownload' } = request.body || {}
+  if (!['allowDownload', 'viewOnly'].includes(permission)) throw httpError(400, 'Choose a valid link permission.')
   if (typeof fileId !== 'string' || !mongoose.isValidObjectId(fileId)) throw httpError(400, 'Choose a valid file.')
   if (!Number.isInteger(expiryDays) || expiryDays < 1 || expiryDays > MAX_EXPIRY_DAYS) {
     throw httpError(400, `Expiry must be between 1 and ${MAX_EXPIRY_DAYS} days.`)
@@ -54,12 +56,14 @@ export async function createShare(request, response) {
 
   const file = await StoredFile.findOne({ _id: fileId, owner: request.user.id })
   if (!file) throw httpError(404, 'File not found.')
+  if (file.scanStatus !== 'clean') throw httpError(409, 'This file cannot be shared until malware scanning succeeds.')
   const tokenSeed = createShareTokenSeed()
   const token = deriveShareToken(tokenSeed)
   const passwordHash = password ? await bcrypt.hash(password, 12) : undefined
   const share = await ShareLink.create({
     owner: request.user.id,
     file: file._id,
+    permission,
     tokenHash: hashShareToken(token),
     tokenSeed,
     passwordHash,
@@ -106,26 +110,28 @@ async function getAvailableShare(token) {
 
 export async function getPublicShare(request, response) {
   const { share } = await getAvailableShare(request.params.token)
-  const file = await StoredFile.findById(share.file).select('originalName size mimeType')
-  if (!file) throw httpError(404, 'This shared file is unavailable.')
+  const file = await StoredFile.findById(share.file).select('originalName size mimeType scanStatus')
+  if (!file || file.scanStatus !== 'clean') throw httpError(404, 'This shared file is unavailable.')
   response.set('Cache-Control', 'no-store').json({
     name: file.originalName,
     size: file.size,
     expiresAt: share.expiresAt,
     passwordRequired: Boolean(share.passwordHash),
+    permission: share.permission || 'allowDownload',
+    previewSupported: (share.permission || 'allowDownload') !== 'viewOnly' || file.mimeType === 'application/pdf',
   })
 }
 
-export async function accessPublicShare(request, response) {
-  const { share, tokenHash } = await getAvailableShare(request.params.token)
-  if (share.passwordHash) {
-    const password = request.body?.password
-    if (typeof password !== 'string' || Buffer.byteLength(password, 'utf8') > 72 || !(await bcrypt.compare(password, share.passwordHash))) {
-      throw httpError(401, 'The link password is incorrect.')
-    }
+async function verifySharePassword(share, request) {
+  if (!share.passwordHash) return
+  const password = request.body?.password
+  if (typeof password !== 'string' || Buffer.byteLength(password, 'utf8') > 72 || !(await bcrypt.compare(password, share.passwordHash))) {
+    throw httpError(401, 'The link password is incorrect.')
   }
+}
 
-  // The conditional atomic update is the gate for every access, including concurrent requests.
+async function consumeShare(tokenHash) {
+  // The conditional atomic update is the gate for every successful access, including concurrent requests.
   const consumed = await ShareLink.findOneAndUpdate({
     tokenHash,
     revokedAt: null,
@@ -136,8 +142,35 @@ export async function accessPublicShare(request, response) {
     $push: { accessHistory: { accessedAt: new Date() } },
   }, { new: true })
   if (!consumed) throw httpError(410, 'This sharing link is no longer available.')
+  return consumed
+}
 
-  const file = await StoredFile.findOne({ _id: consumed.file, owner: consumed.owner }).select('+storageKey')
-  if (!file) throw httpError(404, 'This shared file is unavailable.')
-  return streamShareFile(file, response)
+async function getShareFile(consumed) {
+  const file = await StoredFile.findOne({ _id: consumed.file, owner: consumed.owner }).select('+storageKey +storageProvider')
+  if (!file || file.scanStatus !== 'clean') throw httpError(404, 'This shared file is unavailable.')
+  return file
+}
+
+export async function accessPublicShare(request, response) {
+  const { share, tokenHash } = await getAvailableShare(request.params.token)
+  if (share.permission === 'viewOnly') throw httpError(403, 'This is a view-only link. Downloads are disabled.')
+  await verifySharePassword(share, request)
+  const consumed = await consumeShare(tokenHash)
+  return streamShareFile(await getShareFile(consumed), response)
+}
+
+export async function previewPublicShare(request, response) {
+  const { share, tokenHash } = await getAvailableShare(request.params.token)
+  if (share.permission !== 'viewOnly') throw httpError(400, 'This link allows downloads; use its download action.')
+  await verifySharePassword(share, request)
+  const file = await StoredFile.findOne({ _id: share.file, owner: share.owner }).select('mimeType scanStatus')
+  if (!file || file.scanStatus !== 'clean') throw httpError(404, 'This shared file is unavailable.')
+  if (file.mimeType !== 'application/pdf') throw httpError(415, 'Preview is not supported for this file type. No download is available for this view-only link.')
+  const consumed = await consumeShare(tokenHash)
+  const storedFile = await getShareFile(consumed)
+  return streamPreviewFile(storedFile, response, {
+    linkId: consumed._id.toString(),
+    accessedAt: new Date().toISOString(),
+    viewer: request.user?.email || 'Anonymous viewer',
+  })
 }

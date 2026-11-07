@@ -25,6 +25,7 @@ export default function FileDetailsDialog({ file, onClose }) {
           <div><dt>File type</dt><dd>{details.type}</dd></div>
           <div><dt>File size</dt><dd>{formatSize(details.size)}</dd></div>
           <div><dt>Uploaded</dt><dd>{new Date(details.uploadedAt).toLocaleString()}</dd></div>
+          <div><dt>Malware scan</dt><dd>{details.scanStatus || 'clean'}</dd></div>
         </dl> : <p className="public-share-copy">Loading file details…</p>}
       </div>
     </section>

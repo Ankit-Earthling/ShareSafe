@@ -1,20 +1,24 @@
 import { once } from 'node:events'
 import { randomUUID } from 'node:crypto'
 
-export async function startTestServer(databaseName) {
+export async function startTestServer(databaseName, { scanFile = async () => 'clean', storageQuotaBytes } = {}) {
   process.env.PORT = '3100'
   process.env.MONGODB_URI = `mongodb://127.0.0.1:27017/${databaseName}`
   process.env.FRONTEND_URL = 'http://localhost:5173'
+  process.env.MALWARE_SCANNER = 'clamav'
+  process.env.STORAGE_DRIVER = 'local'
   process.env.JWT_SECRET = randomUUID() + randomUUID()
   process.env.SHARE_TOKEN_SECRET = randomUUID() + randomUUID()
+  if (storageQuotaBytes) process.env.DEFAULT_STORAGE_QUOTA_BYTES = String(storageQuotaBytes)
 
-  const [{ createApp }, database, userModule, fileModule, shareModule, mongooseModule, storage] = await Promise.all([
+  const [{ createApp }, database, userModule, fileModule, shareModule, mongooseModule, storage, fileStorage] = await Promise.all([
     import('../app.js'),
     import('../config/database.js'),
     import('../models/User.js'),
     import('../models/StoredFile.js'),
     import('../models/ShareLink.js'),
     import('mongoose'),
+    import('../services/storage/index.js'),
     import('../services/fileStorage.js'),
   ])
   const mongoose = mongooseModule.default
@@ -23,7 +27,7 @@ export async function startTestServer(databaseName) {
   const ShareLink = shareModule.default
   await database.connectDatabase(process.env.MONGODB_URI)
   await Promise.all([User.init(), StoredFile.init(), ShareLink.init()])
-  const server = createApp().listen(0)
+  const server = createApp({ scanFile }).listen(0)
   await once(server, 'listening')
   const baseUrl = `http://127.0.0.1:${server.address().port}`
 
@@ -65,5 +69,5 @@ export async function startTestServer(databaseName) {
     if (mongoose.connection.readyState) await mongoose.disconnect()
   }
 
-  return { baseUrl, User, StoredFile, ShareLink, mongoose, register, upload, close, storage }
+  return { baseUrl, User, StoredFile, ShareLink, mongoose, register, upload, close, storage: { ...storage, storagePath: fileStorage.storagePath } }
 }

@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
-import { accessPublicShare, createShare, getPublicShare, getShareHistory, listShares, revokeShare } from '../controllers/shareController.js'
+import { accessPublicShare, createShare, getPublicShare, getShareHistory, listShares, previewPublicShare, revokeShare } from '../controllers/shareController.js'
 import { requireFrontendOrigin } from '../middleware/requireFrontendOrigin.js'
+import { optionalAuthenticate } from '../middleware/authenticate.js'
 
 const shareRoutes = Router()
 const publicAccessLimiter = rateLimit({
@@ -12,8 +13,10 @@ const publicAccessLimiter = rateLimit({
   handler: (_request, response) => response.status(429).json({ message: 'Too many sharing link attempts. Please try again later.' }),
 })
 export const publicShareRoutes = Router()
+publicShareRoutes.use(optionalAuthenticate)
 publicShareRoutes.get('/:token', publicAccessLimiter, getPublicShare)
 publicShareRoutes.post('/:token/access', publicAccessLimiter, accessPublicShare)
+publicShareRoutes.post('/:token/preview', publicAccessLimiter, previewPublicShare)
 
 shareRoutes.post('/', requireFrontendOrigin, createShare)
 shareRoutes.get('/', listShares)

@@ -32,3 +32,18 @@ export async function authenticate(request, response, next) {
   request.user = user
   return next()
 }
+
+export async function optionalAuthenticate(request, _response, next) {
+  const token = getRequestToken(request)
+  if (token) {
+    try {
+      const payload = verifyAuthToken(token)
+      if (typeof payload.sub === 'string' && mongoose.isValidObjectId(payload.sub)) {
+        request.user = await getUserById(payload.sub) || undefined
+      }
+    } catch {
+      // Public recipients do not need an account; invalid or expired cookies stay anonymous.
+    }
+  }
+  return next()
+}

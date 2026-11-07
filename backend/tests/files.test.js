@@ -41,7 +41,8 @@ test('validates uploads, scopes file ownership, lists files, and removes local f
 
   const own = await context.upload(owner.cookie)
   assert.equal(own.response.status, 201)
-  assert.deepEqual(Object.keys(own.payload.file).sort(), ['id', 'name', 'size', 'type', 'uploadedAt'])
+  assert.deepEqual(Object.keys(own.payload.file).sort(), ['id', 'name', 'scanStatus', 'size', 'type', 'uploadedAt'])
+  assert.equal(own.payload.file.scanStatus, 'clean')
   const ownMetadata = await fetch(`${context.baseUrl}/api/files/${own.payload.file.id}`, { headers: { Cookie: owner.cookie } })
   assert.equal(ownMetadata.status, 200)
   assert.equal((await ownMetadata.json()).file.name, 'sample.pdf')

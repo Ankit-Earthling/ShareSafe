@@ -41,6 +41,7 @@ function App() {
   })
   const [search, setSearch] = useState('')
   const [files, setFiles] = useState([])
+  const [storage, setStorage] = useState(null)
   const [shareLinks, setShareLinks] = useState([])
   const [dataState, setDataState] = useState('loading')
   const [feedback, setFeedback] = useState('')
@@ -108,6 +109,7 @@ function App() {
       .then(([fileResult, shareResult]) => {
         if (current) {
           setFiles(fileResult.files)
+          setStorage(fileResult.storage)
           setShareLinks(shareResult.shares)
           setDataState('ready')
         }
@@ -165,10 +167,13 @@ function App() {
     let uploadError = ''
     for (const file of selectedFiles) {
       try {
-        const { file: savedFile } = await filesApi.upload(file)
+        const { file: savedFile, storage: nextStorage } = await filesApi.upload(file)
         setFiles((current) => [savedFile, ...current.filter((item) => item.id !== savedFile.id)])
+        setStorage(nextStorage)
         uploaded += 1
       } catch (error) {
+        const latest = await filesApi.list().catch(() => null)
+        if (latest) { setFiles(latest.files); setStorage(latest.storage) }
         uploadError = error.message || `Could not upload ${file.name}.`
         break
       }
@@ -186,8 +191,9 @@ function App() {
   const deleteFile = async (file) => {
     if (!window.confirm(`Delete “${file.name}”? Its sharing links will also stop working.`)) return
     try {
-      await filesApi.delete(file.id)
+      const result = await filesApi.delete(file.id)
       setFiles((current) => current.filter((item) => item.id !== file.id))
+      setStorage(result.storage)
       setShareLinks((current) => current.filter((item) => item.fileId !== file.id))
       notify('File deleted from your account.')
     } catch (error) { notify(error.message || 'The file could not be deleted.') }
@@ -223,7 +229,7 @@ function App() {
       <div className="dashboard-content">
         {active === 'Dashboard' && <>
           <div className="welcome-row"><div><h1>Welcome back, {user.name}</h1><p>Your files, all in one place.</p></div><BackendStatus status={backendStatus} /></div>
-          <OverviewCards files={files} shares={shareLinks} />
+          <OverviewCards files={files} shares={shareLinks} storage={storage} />
           <UploadSection onBrowse={openFilePicker} onDrop={handleUpload} uploading={uploading} />
           <div className="tables-grid">
             <RecentFiles files={filteredFiles.slice(0, 4)} loading={dataState === 'loading'} onShare={setSharingFile} onDownload={downloadFile} onDelete={deleteFile} onDetails={setDetailsFile} onViewAll={() => navigate('My Files')} />
