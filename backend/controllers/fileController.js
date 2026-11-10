@@ -2,7 +2,7 @@ import mongoose from 'mongoose'
 import ShareLink from '../models/ShareLink.js'
 import StoredFile from '../models/StoredFile.js'
 import User from '../models/User.js'
-import { MAX_FILE_SIZE, removeStagedFile, safeDownloadName, storagePath, validateStoredFile } from '../services/fileStorage.js'
+import { MAX_FILE_SIZE, removeStagedFile, safeDownloadName, stagedStoragePath, validateStoredFile } from '../services/fileStorage.js'
 import { openStoredFile, persistUploadedFile, removeStoredFile } from '../services/storage/index.js'
 import { env } from '../config/env.js'
 import { httpError } from '../utils/httpError.js'
@@ -43,6 +43,17 @@ async function reserveStorage(userId, size) {
   }, { $inc: { usedStorageBytes: size } }, { new: true })
 }
 
+async function markBlockedScan(file, userId, scanStatus) {
+  await removeStagedFile(file.storageKey)
+  const released = await StoredFile.findOneAndUpdate(
+    { _id: file._id, storageAccounted: true },
+    { $set: { scanStatus, storageAccounted: false } },
+    { new: false },
+  )
+  if (released) await User.updateOne({ _id: userId }, { $inc: { usedStorageBytes: -released.size } })
+  else await StoredFile.updateOne({ _id: file._id }, { $set: { scanStatus } })
+}
+
 export async function uploadFile(request, response) {
   if (!request.file) throw httpError(400, 'Choose a file to upload.')
   let file
@@ -55,7 +66,6 @@ export async function uploadFile(request, response) {
     const user = await reserveStorage(request.user.id, request.file.size)
     if (!user) throw httpError(413, 'This upload exceeds your available storage quota.')
     reserved = true
-    await persistUploadedFile(request.file.filename, storagePath(request.file.filename), request.file.mimetype, storageProvider)
     file = await StoredFile.create({
       owner: request.user.id,
       storageKey: request.file.filename,
@@ -70,49 +80,41 @@ export async function uploadFile(request, response) {
     try {
       result = await scanner(file.storageKey)
     } catch {
-      await StoredFile.updateOne({ _id: file._id }, { $set: { scanStatus: 'failed' } })
+      await markBlockedScan(file, request.user.id, 'failed')
+      reserved = false
       preserveFailureRecord = true
-      if (storageProvider === 'b2') await removeStagedFile(file.storageKey).catch(() => {})
       throw httpError(503, 'Malware scanning is unavailable or did not complete. This file is blocked.', { expose: true })
     }
     if (result === 'infected' || result === 'suspicious') {
       const scanStatus = result === 'suspicious' ? 'suspicious' : 'infected'
-      try {
-        await removeStoredFile(file.storageKey, storageProvider)
-      } catch {
-        await StoredFile.updateOne({ _id: file._id }, { $set: { scanStatus } })
-        preserveFailureRecord = true
-        if (storageProvider === 'b2') await removeStagedFile(file.storageKey).catch(() => {})
-        throw httpError(503, 'The blocked file could not be removed from storage. It remains unavailable.', { expose: true })
-      }
-      const released = await StoredFile.findOneAndUpdate({ _id: file._id, storageAccounted: true }, { $set: { scanStatus, storageAccounted: false } }, { new: false })
-      if (released) await User.updateOne({ _id: request.user.id }, { $inc: { usedStorageBytes: -released.size } })
-      else await StoredFile.updateOne({ _id: file._id }, { $set: { scanStatus } })
+      await markBlockedScan(file, request.user.id, scanStatus)
       reserved = false
       preserveFailureRecord = true
-      if (storageProvider === 'b2') await removeStagedFile(file.storageKey).catch(() => {})
       throw httpError(422, result === 'suspicious'
         ? 'The scan marked this file suspicious. It has been removed and cannot be shared.'
         : 'The uploaded file was identified as malware and has been removed.')
     }
     if (result !== 'clean') {
-      await StoredFile.updateOne({ _id: file._id }, { $set: { scanStatus: 'failed' } })
+      await markBlockedScan(file, request.user.id, 'failed')
+      reserved = false
       preserveFailureRecord = true
-      if (storageProvider === 'b2') await removeStagedFile(file.storageKey).catch(() => {})
       throw httpError(503, 'Malware scanning failed. This file cannot be shared until it scans clean.', { expose: true })
     }
+
+    // Scan the staged bytes first; only an exact clean verdict is persisted.
+    const storageKey = file.storageKey
+    await persistUploadedFile(storageKey, stagedStoragePath(storageKey), request.file.mimetype, storageProvider)
     file = await StoredFile.findByIdAndUpdate(file._id, { $set: { scanStatus: 'clean' } }, { new: true })
     if (!file) {
-      reserved = false // A concurrent removal already released this reservation.
       throw httpError(409, 'This upload was removed before its scan completed.')
     }
-    if (storageProvider === 'b2') await removeStagedFile(file.storageKey)
+    await removeStagedFile(storageKey)
     const updatedUser = await User.findById(request.user.id).select('usedStorageBytes storageQuotaBytes')
     return response.status(201).json({ file: presentFile(file), storage: presentStorage(updatedUser), maxFileSize: MAX_FILE_SIZE })
   } catch (error) {
     if (!preserveFailureRecord) {
       await removeStoredFile(request.file.filename, storageProvider).catch(() => {})
-      if (storageProvider === 'b2') await removeStagedFile(request.file.filename).catch(() => {})
+      await removeStagedFile(request.file.filename).catch(() => {})
       if (file) await StoredFile.deleteOne({ _id: file._id })
       if (reserved) await User.updateOne({ _id: request.user.id }, { $inc: { usedStorageBytes: -request.file.size } })
     }

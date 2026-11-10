@@ -5,7 +5,6 @@ export async function startTestServer(databaseName, { scanFile = async () => 'cl
   process.env.PORT = '3100'
   process.env.MONGODB_URI = `mongodb://127.0.0.1:27017/${databaseName}`
   process.env.FRONTEND_URL = 'http://localhost:5173'
-  process.env.MALWARE_SCANNER = 'clamav'
   process.env.STORAGE_DRIVER = 'local'
   process.env.JWT_SECRET = randomUUID() + randomUUID()
   process.env.SHARE_TOKEN_SECRET = randomUUID() + randomUUID()
@@ -58,7 +57,10 @@ export async function startTestServer(databaseName, { scanFile = async () => 'cl
     const users = await User.find({ email: /^test-.*@example\.test$/ }).select('_id')
     const ownerIds = users.map((user) => user._id)
     const storedFiles = await StoredFile.find({ owner: { $in: ownerIds } }).select('+storageKey')
-    await Promise.all(storedFiles.map((file) => storage.removeStoredFile(file.storageKey).catch(() => {})))
+    await Promise.all(storedFiles.map((file) => Promise.all([
+      storage.removeStoredFile(file.storageKey).catch(() => {}),
+      fileStorage.removeStagedFile(file.storageKey).catch(() => {}),
+    ])))
     await Promise.all([
       ShareLink.deleteMany({ owner: { $in: ownerIds } }),
       StoredFile.deleteMany({ owner: { $in: ownerIds } }),
@@ -69,5 +71,15 @@ export async function startTestServer(databaseName, { scanFile = async () => 'cl
     if (mongoose.connection.readyState) await mongoose.disconnect()
   }
 
-  return { baseUrl, User, StoredFile, ShareLink, mongoose, register, upload, close, storage: { ...storage, storagePath: fileStorage.storagePath } }
+  return {
+    baseUrl,
+    User,
+    StoredFile,
+    ShareLink,
+    mongoose,
+    register,
+    upload,
+    close,
+    storage: { ...storage, storagePath: fileStorage.storagePath, stagedStoragePath: fileStorage.stagedStoragePath },
+  }
 }

@@ -1,4 +1,5 @@
-import { mkdir, unlink } from 'node:fs/promises'
+import { mkdir, open, unlink } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
@@ -6,6 +7,7 @@ import multer from 'multer'
 import { httpError } from '../utils/httpError.js'
 
 const uploadDirectory = path.resolve(fileURLToPath(new URL('../uploads/', import.meta.url)))
+const stagingDirectory = path.resolve(uploadDirectory, '.staging')
 export const MAX_FILE_SIZE = 10 * 1024 * 1024
 
 const allowedTypes = new Map([
@@ -19,11 +21,14 @@ const allowedTypes = new Map([
   ['.csv', 'text/csv'],
 ])
 
-await mkdir(uploadDirectory, { recursive: true })
+await Promise.all([
+  mkdir(uploadDirectory, { recursive: true }),
+  mkdir(stagingDirectory, { recursive: true }),
+])
 
 export const uploadSingleFile = multer({
   storage: multer.diskStorage({
-    destination: (_request, _file, callback) => callback(null, uploadDirectory),
+    destination: (_request, _file, callback) => callback(null, stagingDirectory),
     filename: (_request, _file, callback) => callback(null, randomBytes(32).toString('hex')),
   }),
   limits: { fileSize: MAX_FILE_SIZE, files: 1, fields: 0, parts: 1 },
@@ -43,35 +48,52 @@ export function storagePath(storageKey) {
   return resolvedPath
 }
 
+export function stagedStoragePath(storageKey) {
+  if (!/^[a-f0-9]{64}$/.test(storageKey)) throw httpError(404, 'File not found.')
+  const resolvedPath = path.resolve(stagingDirectory, storageKey)
+  if (!resolvedPath.startsWith(`${stagingDirectory}${path.sep}`)) throw httpError(404, 'File not found.')
+  return resolvedPath
+}
+
 export async function removeStagedFile(storageKey) {
   try {
-    await unlink(storagePath(storageKey))
+    await unlink(stagedStoragePath(storageKey))
   } catch (error) {
     if (error.code !== 'ENOENT') throw error
   }
 }
 
 export async function validateStoredFile(file) {
-  const { readFile } = await import('node:fs/promises')
-  const data = await readFile(storagePath(file.filename))
+  const filePath = stagedStoragePath(file.filename)
+  const handle = await open(filePath, 'r')
+  const header = Buffer.alloc(12)
+  try {
+    await handle.read(header, 0, header.length, 0)
+  } finally {
+    await handle.close()
+  }
   const valid = file.mimetype === 'application/pdf'
-    ? data.subarray(0, 5).toString() === '%PDF-'
+    ? header.subarray(0, 5).toString() === '%PDF-'
     : file.mimetype === 'image/png'
-      ? data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+      ? header.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
       : file.mimetype === 'image/jpeg'
-        ? data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff
+        ? header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff
         : file.mimetype === 'image/gif'
-          ? ['GIF87a', 'GIF89a'].includes(data.subarray(0, 6).toString())
+          ? ['GIF87a', 'GIF89a'].includes(header.subarray(0, 6).toString())
           : file.mimetype === 'image/webp'
-            ? data.subarray(0, 4).toString() === 'RIFF' && data.subarray(8, 12).toString() === 'WEBP'
-            : validateText(data)
+            ? header.subarray(0, 4).toString() === 'RIFF' && header.subarray(8, 12).toString() === 'WEBP'
+            : await validateTextFile(filePath)
   if (!valid) throw httpError(415, 'The file contents do not match the selected file type.')
 }
 
-function validateText(data) {
-  if (data.includes(0)) return false
+async function validateTextFile(filePath) {
+  const decoder = new TextDecoder('utf-8', { fatal: true })
   try {
-    new TextDecoder('utf-8', { fatal: true }).decode(data)
+    for await (const chunk of createReadStream(filePath)) {
+      if (chunk.includes(0)) return false
+      decoder.decode(chunk, { stream: true })
+    }
+    decoder.decode()
     return true
   } catch {
     return false

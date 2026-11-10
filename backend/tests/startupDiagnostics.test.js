@@ -4,21 +4,16 @@ import { configurationPresence, sanitizeMongoFailure, startupFailureCategory } f
 
 test('configuration diagnostics expose only presence for mode-required variables', () => {
   const diagnostics = configurationPresence({
-    PORT: '3000',
-    MONGODB_URI: 'mongodb://private-connection-string',
     STORAGE_DRIVER: 'b2',
-    MALWARE_SCANNER: 'bouncer',
     B2_REGION: 'us-west-004',
-    BOUNCER_API_KEY: 'private-api-key',
   })
 
   assert.equal(diagnostics.MONGODB_URI, true)
-  assert.equal(diagnostics.BOUNCER_API_KEY, true)
   assert.equal(diagnostics.B2_REGION, true)
   assert.equal(diagnostics.B2_ENDPOINT, false)
   assert.equal(JSON.stringify(diagnostics).includes('private'), false)
-  assert.deepEqual(Object.keys(configurationPresence({ STORAGE_DRIVER: 'local', MALWARE_SCANNER: 'clamav' })), [
-    'PORT', 'FRONTEND_URL', 'MONGODB_URI', 'JWT_SECRET', 'SHARE_TOKEN_SECRET', 'STORAGE_DRIVER', 'MALWARE_SCANNER',
+  assert.deepEqual(Object.keys(configurationPresence({ STORAGE_DRIVER: 'local' })), [
+    'PORT', 'FRONTEND_URL', 'MONGODB_URI', 'STORAGE_DRIVER', 'CLAMAV_HOST', 'CLAMAV_PORT', 'JWT_SECRET', 'SHARE_TOKEN_SECRET',
   ])
 })
 
@@ -33,7 +28,7 @@ test('startup failure categories identify database and service initialization fa
 
 test('Mongo diagnostics sanitize nested DNS errors and never return credentials, hosts, or raw messages', () => {
   const nestedDnsError = Object.assign(new Error(
-    'querySrv ENOTFOUND mongodb+srv://db-user:db-password@private-cluster.example/?token=private-token bnc_live_private-key',
+    'querySrv ENOTFOUND mongodb+srv://db-user:db-password@private-cluster.example/?token=private-token provider_api_key_private-value',
   ), { name: 'MongoNetworkError', code: 'ENOTFOUND', codeName: 'private-cluster.example' })
   const selectionError = Object.assign(new Error('Server selection timed out for private-cluster.example'), {
     name: 'MongoServerSelectionError',

@@ -1,169 +1,215 @@
 # ShareSafe
 
-ShareSafe lets a user keep files in a private account and create temporary, access-limited links for recipients. It uses local storage for development and supports private Backblaze B2 object storage for hosted deployments, with MongoDB metadata.
+ShareSafe is a local-first file sharing application. Users can upload files, inspect metadata, share downloads or view-only PDF previews, and configure passwords, expiration dates, access limits, revocation, and access history.
 
-## Technology and architecture
+**The currently supported setup runs on one Windows 11 PC:** React + Vite, Node.js + Express, local MongoDB, local filesystem storage, and ClamAV in Docker. Cloud hosting and object storage are future deployment work.
 
-- Frontend: React, Vite, JavaScript, CSS
-- Backend: Node.js, Express, Multer
-- Database: MongoDB with Mongoose
-- Security: bcrypt, JWT session cookies, hashed share tokens, Helmet, CORS allow-list, Origin checks, and rate limits
+## Architecture and data flow
 
-The React frontend and Express API run separately. The frontend uses `VITE_API_BASE_URL` for API calls. `STORAGE_DRIVER=local` (the development default) stores files under `backend/uploads/`; `STORAGE_DRIVER=b2` uses a private Backblaze B2 bucket. B2 files are streamed only through the backend after authorization checks; the frontend never receives object URLs. Each file records its storage provider, while MongoDB stores metadata only. A share token is derived from a cryptographically random per-link seed and a dedicated server secret; MongoDB stores the token hash and seed, never the bearer token. Keep `SHARE_TOKEN_SECRET` stable or existing share URLs will stop working. Cookie-authenticated state changes require the configured frontend `Origin`.
+- React calls the Express REST API through `http://localhost:3000/api`.
+- Express uses local MongoDB at `mongodb://127.0.0.1:27017/sharesafe` by default. MongoDB holds user, file, quota, and sharing metadata, never file contents.
+- Multer places an upload temporarily in `backend/uploads/.staging/`. The backend streams it to the local ClamAV daemon using ClamD's `INSTREAM` protocol.
+- Only an explicit `stream: OK` verdict allows the staged file to be moved into the persistent `backend/uploads/` directory. An infected, unknown, timed-out, or unavailable scan is blocked, the temporary file is cleaned up, and the reserved quota is released.
+- The backend stores an opaque random key in MongoDB. Private files are streamed through owner-authorized or validated share routes; the app does not expose a public uploads URL.
 
-## Project structure
+## Windows 11 prerequisites
 
-```text
-frontend/
-  src/components/   Dashboard, file, link, and upload components
-  src/context/      Authenticated user state
-  src/pages/        Login, registration, and public share page
-  src/services/     API client
-backend/
-  config/            Environment and MongoDB setup
-  controllers/       Auth, file, share, and health handlers
-  middleware/        Authentication, CSRF Origin check, and errors
-  models/            User, file metadata, and share links
-  routes/            API route groups
-  services/          Authentication, scanner adapters, and local/B2 storage adapters
-  tests/             MongoDB-backed integration tests
-  uploads/           Private local file contents (ignored by Git)
-  server.js          API entry point
+- Node.js 22.12 or newer and npm.
+- MongoDB Community Server running locally, or Docker Desktop for an optional local MongoDB container.
+- Docker Desktop with its Linux container engine enabled for ClamAV.
+- Git, if cloning the repository.
+
+ClamAV uses the official `clamav/clamav` image. This repository pins `clamav/clamav:1.5.4`; review [official ClamAV releases](https://github.com/Cisco-Talos/clamav/releases) and update that tag when adopting a newer patched release. The image includes the ClamAV daemons and signature database; Compose persists the database in a Docker volume. The daemon port is published only on `127.0.0.1`.
+
+## First-time local setup
+
+Run these PowerShell commands from the repository root. The copy commands preserve any existing environment files.
+
+```powershell
+if (-not (Test-Path backend\.env)) {
+    Copy-Item backend\.env.example backend\.env
+}
+if (-not (Test-Path frontend\.env.local)) {
+    Copy-Item frontend\.env.example frontend\.env.local
+}
 ```
 
-## Prerequisites
+Open `backend/.env` and replace both signing-secret placeholders with different random values. In PowerShell, generate each value with:
 
-- Node.js and npm
-- MongoDB Community Server running locally, or a MongoDB URI the backend can access
+```powershell
+$bytes = New-Object byte[] 48
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+[Convert]::ToBase64String($bytes)
+$rng.Dispose()
+```
 
-On Windows, check whether MongoDB runs as a service in PowerShell:
+Do not reuse either secret elsewhere or commit the `.env` file. MongoDB, frontend origin, local storage, and ClamAV connection values in the example are safe local defaults.
+
+### MongoDB
+
+If MongoDB Community Server is installed as a Windows service, check it with:
 
 ```powershell
 Get-Service MongoDB
+Test-NetConnection 127.0.0.1 -Port 27017
 ```
 
-If stopped, start PowerShell as an administrator and run `Start-Service MongoDB`. For a manually managed MongoDB installation, start it using that installation's data directory and configuration.
+If the service is stopped, start it from an elevated PowerShell window:
 
-## Configure and start
+```powershell
+Start-Service MongoDB
+```
 
-In the backend terminal:
+If MongoDB is not installed as a Windows service but Docker Desktop is available, start a persistent local database container:
+
+```powershell
+docker run -d --name sharesafe-mongodb -p 127.0.0.1:27017:27017 -v sharesafe-mongodb-data:/data/db mongo:8
+```
+
+On later starts, use `docker start sharesafe-mongodb`. The named Docker volume keeps database files across container restarts. Do not run `docker volume rm` for this volume unless you intend to delete the local database.
+
+### ClamAV
+
+From the repository root, start the local ClamAV service:
+
+```powershell
+docker compose up -d clamav
+docker compose ps
+docker compose logs -f clamav
+```
+
+The first start may take several minutes while the image initializes and its signature database loads. Wait for the service health check to pass. The official image runs `clamd` and FreshClam; its database volume persists signature data. Stop viewing logs with `Ctrl+C` (the container continues running).
+
+The daemon protocol is not encrypted or authenticated. Compose binds port 3310 to loopback only. Do not change that mapping to `0.0.0.0` or expose it to a network.
+
+## Start ShareSafe
+
+Open three PowerShell terminals at the repository root.
+
+**Terminal 1 — ClamAV**, if it is not already running:
+
+```powershell
+docker compose up -d clamav
+```
+
+**Terminal 2 — backend:**
 
 ```powershell
 cd backend
-npm ci
-Copy-Item .env.example .env
-```
-
-Edit `backend/.env`:
-
-- `PORT`: API port, usually `3000`.
-- `MONGODB_URI`: MongoDB URI, such as `mongodb://127.0.0.1:27017/sharesafe`.
-- `FRONTEND_URL`: Exact frontend origin, usually `http://localhost:5173`.
-- `JWT_SECRET`: Private random secret with at least 32 characters. The example placeholder is rejected.
-- `SHARE_TOKEN_SECRET`: Different private random secret with at least 32 characters. Keep it stable to preserve existing share URLs.
-- `ADMIN_PASSWORD`: Optional 12–72 byte password for the local demo admin. Leave empty to generate a strong password on first seed; the generated password is printed once and preserved on later runs.
-- `DEFAULT_STORAGE_QUOTA_BYTES`: Per-user quota in bytes (default 524288000, or 500 MiB). It is set when an account is created; configure before registering users.
-- `MALWARE_SCANNER`: `clamav` (default, for local development) or `bouncer`.
-- `CLAMAV_COMMAND`: ClamAV scanner executable path or command name (default `clamscan`); used when `MALWARE_SCANNER=clamav`.
-- `BOUNCER_API_KEY`: Private Bouncer API key, required only when `MALWARE_SCANNER=bouncer`. Configure it in the backend environment only; never use a `VITE_` variable.
-- `STORAGE_DRIVER`: `local` (default for development) or `b2`. Render startup is rejected unless B2 is selected because Render's filesystem is ephemeral.
-- `B2_ENDPOINT`, `B2_REGION`, `B2_BUCKET`, `B2_KEY_ID`, `B2_APPLICATION_KEY`: Required only for B2 storage. Use the bucket's HTTPS S3 endpoint and a bucket-scoped application key. Keep the bucket private and all B2 credentials in the backend environment.
-
-Never commit or share `.env`. Start the backend in that terminal:
-
-```powershell
-npm run seed:admin
+npm install
 npm run dev
 ```
 
-### Malware scanning
-
-ShareSafe supports the local ClamAV scanner and the Bouncer malware scanning API. Configure exactly one backend provider with `MALWARE_SCANNER`; scanner selection and credentials are server-side. Files become available only after an exact `clean` result. Suspicious and infected files are blocked and removed; provider errors, timeouts, quota exhaustion, incomplete scans, and unknown results remain blocked as failed. Scanner credentials and provider response details are not returned to the browser or written to application logs.
-
-For Bouncer, set `MALWARE_SCANNER=bouncer` and `BOUNCER_API_KEY` in `backend/.env` (or the backend host's secret environment settings), then restart the backend. Use an API key created in the Bouncer dashboard. The installed `@usebouncer/sdk` version supports Node.js 20+ and automatically switches files above its 4 MiB internal threshold to Bouncer's v2 upload flow. Bouncer's documentation lists a 25 MB v2 maximum for its Free tier and 500 scans per month; the ShareSafe upload limit remains 10 MB. Larger files and scans beyond the account allowance are rejected and never marked clean. See the [official Bouncer API documentation](https://usebouncer.dev/docs/).
-
-The SDK buffers file data for upload, so concurrent 10 MB uploads can use significant memory. Provider scan failures remain fail-closed. Mocked tests do not establish that an account has valid credentials, remaining quota, or operational service access; confirm a real clean scan separately before enabling Bouncer for users.
-
-For local ClamAV on Windows:
-
-Install ClamAV for Windows using the [official Windows installer or portable package](https://docs.clamav.net/faq/faq-win32.html) and update its virus database using the included `freshclam` utility ([signature database setup](https://docs.clamav.net/manual/Usage/SignatureManagement.html)). Confirm `clamscan.exe` runs from PowerShell, then either add its install directory to `PATH` or set `CLAMAV_COMMAND` in `backend/.env` to the full path to `clamscan.exe` (enter the path without surrounding quotes). Set `MALWARE_SCANNER=clamav` and restart the backend. A successful upload response with `scanStatus: clean` means the configured scanner completed a clean scan. When the configured scanner is missing or fails, uploads are retained as failed and blocked from downloads and sharing; no file is treated as clean.
-
-The seed command is restricted to a local MongoDB URI and refuses to run with `NODE_ENV=production`. It creates or updates `admin@sharesafe.local` with the `admin` role. If `ADMIN_PASSWORD` is empty, it generates a random password only when creating the account; save the one-time output. Subsequent runs preserve that password. Set `ADMIN_PASSWORD` in the ignored `.env` to explicitly set or rotate it.
-
-In a second terminal, start the frontend:
+**Terminal 3 — frontend:**
 
 ```powershell
 cd frontend
-npm ci
+npm install
 npm run dev
 ```
 
-The frontend defaults to `http://localhost:3000/api`. To change it, copy `frontend/.env.example` to `frontend/.env.local` and set `VITE_API_BASE_URL`.
+Open [http://localhost:5173](http://localhost:5173). The backend listens on port 3000 by default. `PORT`, `MONGODB_URI`, `FRONTEND_URL`, and `VITE_API_BASE_URL` can be set for a different local setup. The Vite API URL is embedded at build time.
 
-## Implemented features
+## Health and readiness
 
-- Registration, login, logout, and current-user restoration with bcrypt hashes and HttpOnly JWT cookies.
-- Local-only idempotent demo admin seed command; new registrations always receive the regular `user` role.
-- Authenticated file uploads up to 10 MB. Supported formats: PDF, PNG, JPEG, GIF, WebP, TXT, and CSV. Each account has a configurable 500 MiB default storage quota.
-- Local storage remains available for development. The B2 adapter stores private objects and streams them through backend authorization routes. `backend/scripts/migrateLocalFilesToB2.js` supports verified, repeatable migration without deleting the original local files.
-- Uploaded files remain pending and cannot be downloaded or shared until the selected scanner reports an exact clean verdict. Suspicious and infected files are removed; unavailable or unknown scanner results remain failed and blocked.
-- User-owned file listing, metadata lookup, and deletion. Deleting a file also revokes its associated shares and removes the provider's stored object.
-- Owner-only file details and downloads.
-- Share links with 1–30 day expiry, optional bcrypt-protected passwords, and a maximum of 1,000 accesses. Owners can choose downloads or view-only PDF previews with a viewer/link/time watermark overlay.
-- Public recipient page and attachment download; access counts are enforced atomically. Public share attempts are rate-limited.
-- Share owners can list, copy, inspect download history, and revoke their links. The dashboard reflects real file and share metadata.
-- Light/dark themes, search, responsive dashboard, and backend connection status.
-- Health endpoint: `GET /api/health`.
+- Liveness: `http://localhost:3000/api/health` returns HTTP 200 while the Express process is running.
+- Readiness: `http://localhost:3000/api/ready` reports whether MongoDB, local storage, and ClamAV are available. It returns HTTP 503 while a required dependency is unavailable.
+- Backend startup logs report whether the ClamAV daemon and its definitions are ready. The backend may start without ClamAV so the UI remains usable, but uploads fail closed until scanning is ready.
 
-## API overview
+PowerShell checks:
 
-Authenticated endpoints use the HttpOnly cookie returned by register/login. File/share mutations also require the configured frontend Origin.
+```powershell
+Invoke-RestMethod http://localhost:3000/api/health
+Invoke-RestMethod http://localhost:3000/api/ready
+```
 
-| Method and path | Purpose |
-| --- | --- |
-| `POST /api/auth/register` | Create an account |
-| `POST /api/auth/login` | Start a session (10 attempts per 15 minutes per IP) |
-| `POST /api/auth/logout` | Clear the session cookie |
-| `GET /api/auth/me` | Get the signed-in user |
-| `POST /api/files/upload` | Upload multipart field `file` (10 MB maximum) |
-| `GET /api/files` | List the signed-in user's files |
-| `GET /api/files/:id` | Get owned file metadata |
-| `GET /api/files/:id/download` | Download an owned file |
-| `DELETE /api/files/:id` | Delete an owned file |
-| `POST /api/shares` | Create a share (`fileId`, `expiryDays`, `maxAccesses`, optional `password`) |
-| `GET /api/shares` | List the signed-in user's shares |
-| `GET /api/shares/:id/history` | Get successful download timestamps for an owned share |
-| `DELETE /api/shares/:id` | Revoke an owned share |
-| `GET /api/public/shares/:token` | Check a public share and get safe file details |
-| `POST /api/public/shares/:token/access` | Validate optional password and download the file |
-| `POST /api/public/shares/:token/preview` | Validate a view-only link and return a watermarked PDF preview stream |
+## Malware scanning
 
-The backend can reproduce an owner's URL from its random per-link seed and `SHARE_TOKEN_SECRET`, so existing active links remain copyable after reload without storing raw bearer tokens. Keep the dedicated secret stable; changing it invalidates existing links.
+ShareSafe uses ClamAV locally and has no external scanning API. The backend connects to `127.0.0.1:3310` by default. It streams staged bytes to ClamD using `INSTREAM`, so it does not load an entire uploaded file into memory. The command framing and response handling follow the [official ClamD protocol](https://docs.clamav.net/manual/Usage/ClamdProtocol.html).
 
-## Checks
+Only an explicit clean reply makes a file downloadable or shareable. Infected replies are rejected. Unknown replies, connection errors, missing definitions, and timeouts are treated as scan failures, never as clean. The upload-size limit remains 10 MiB.
 
-Backend integration tests use local MongoDB databases named `sharesafe_auth_test`, `sharesafe_files_test`, and `sharesafe_shares_test`. Keep MongoDB running, then run:
+After Docker reports ClamAV healthy and `/api/ready` reports `scanner: connected`, run a live clean/EICAR check:
+
+```powershell
+cd backend
+npm run test:clamav:live
+```
+
+This command writes both fixtures only into the temporary staging directory, scans them through the real daemon, expects a clean verdict for the harmless fixture and detection for the standard EICAR test fixture, then removes both. Do not upload EICAR through a normal account or place it in persistent user storage. A passing mocked backend test does not prove the live daemon or its definitions work.
+
+## Uploads, storage, and sharing
+
+- Files are limited to 10 MiB and checked against the allowed extension, declared MIME type, and file signature/content.
+- Temporary upload data lives in `backend/uploads/.staging/`; accepted clean files are moved to persistent `backend/uploads/`. Do not delete or replace this directory during normal code updates. Back it up together with MongoDB.
+- Each user has a 500 MiB default quota. Reservations are made atomically; rejected scans and failed uploads clean up their staged bytes and release quota.
+- File metadata includes the scan state. Files without a clean verdict cannot be downloaded or shared.
+- Sharing retains password protection, expiry, download/access limits, revocation, access history, and view-only PDF preview. Link tokens are cryptographically random and stored hashed. Owners can only manage their own files and links.
+- `backend/services/storage/` retains an optional B2 adapter for future work, but local storage is the supported configuration. No B2 account or credentials are needed for local operation.
+
+## Environment variables
+
+`backend/.env.example` contains local defaults and placeholder signing secrets:
+
+- `PORT` — backend port, default `3000`.
+- `MONGODB_URI` — local MongoDB URI, default `mongodb://127.0.0.1:27017/sharesafe`.
+- `FRONTEND_URL` — local Vite origin, default `http://localhost:5173`.
+- `JWT_SECRET` and `SHARE_TOKEN_SECRET` — separate private values; each must be at least 32 characters.
+- `DEFAULT_STORAGE_QUOTA_BYTES` — quota for new accounts, default `524288000`.
+- `STORAGE_DRIVER` — `local` by default. `b2` is retained as an optional adapter and requires its provider credentials; it is not part of the supported local setup.
+- `CLAMAV_HOST`, `CLAMAV_PORT`, `CLAMAV_CONNECT_TIMEOUT_MS`, `CLAMAV_TIMEOUT_MS` — local daemon settings, defaulting to `127.0.0.1`, `3310`, `5000`, and `120000` milliseconds.
+
+`frontend/.env.example` sets `VITE_API_BASE_URL=http://localhost:3000/api`. Never put backend secrets in a `VITE_*` variable.
+
+## Tests and build checks
 
 ```powershell
 cd backend
 npm test
+npm run test:clamav:live
 ```
 
-Frontend checks:
+Backend lint is not configured. Frontend checks:
 
 ```powershell
 cd frontend
+npm test
 npm run lint
 npm run build
 ```
 
-## Render deployment preparation
+The live ClamAV check requires Docker Desktop and a healthy local `clamav` service. Backend integration tests also require the local MongoDB service or container.
 
-`render.yaml` defines a static frontend and Node API, an API rewrite for same-origin cookie requests, B2 storage, and Bouncer scanning. Review [the Render deployment guide](docs/deployment-render.md) before creating services. The Blueprint deliberately requests real secrets in Render instead of containing placeholder credentials. The deployment is not verified until the deployed API can access the private B2 bucket and a real clean file scan succeeds through the deployed service.
+## Troubleshooting
 
-## Still pending
+**MongoDB connection refused:** Check `Get-Service MongoDB` and `Test-NetConnection 127.0.0.1 -Port 27017`. If using Docker, check `docker ps` and `docker logs sharesafe-mongodb`. Confirm `MONGODB_URI` points to the local database. Do not delete the database volume to troubleshoot connectivity.
 
-- Email verification, password recovery, and server-side session revocation.
-- Existing links created before token-seed support cannot have their original URL recovered; recreate those links if their original URL is unavailable.
-- Real B2 account integration, local-to-Atlas/B2 migration rehearsal, Render service creation, deployed B2 and Bouncer smoke tests, and automated frontend interaction tests.
-- Additional safe file types and configurable upload limits.
+**Docker command fails:** Start Docker Desktop, wait for its engine to finish starting, and verify with `docker info` and `docker compose version`.
+
+**ClamAV is unavailable or readiness reports scanner disconnected:** Check `docker compose ps` and `docker compose logs clamav`. Wait for database initialization and a healthy container. Confirm `CLAMAV_HOST=127.0.0.1` and `CLAMAV_PORT=3310`. Uploads remain blocked until the daemon responds and reports loaded virus definitions.
+
+**ClamAV times out:** Allow the daemon to finish initializing, check Docker Desktop memory allocation, then retry. Increase `CLAMAV_TIMEOUT_MS` only if slower scanning is expected; failures must remain fail-closed.
+
+**Port already in use:** Check `Get-NetTCPConnection -LocalPort 27017,3000,3310,5173 -State Listen` and stop or reconfigure the conflicting local service.
+
+## Security and data limitations
+
+- Local storage is plaintext on the host filesystem. Use Windows account permissions and full-disk protection, and maintain backups.
+- ClamAV is a malware filter, not a guarantee that every harmful file will be detected. Keep its signatures current and fail closed when it is unavailable.
+- ClamD TCP has no transport encryption or authentication. The provided configuration is restricted to local loopback. Do not expose it publicly.
+- The application is configured for local development, not public internet use. Do not expose the development server or ClamAV port to untrusted networks.
+- Local files and MongoDB are separate persistence layers; include both in a recovery plan.
+
+## Future hosting roadmap
+
+Hosting is not the current supported setup. A future Render, VPS, or other deployment needs a deliberate review and configuration for:
+
+- Persistent private object storage (or secured persistent disks) and a migration plan for existing local files.
+- Production MongoDB, restricted network access, credentials, backups, and restore testing.
+- A private-network ClamAV service or another secured scanning service with enough memory, scan capacity, updated definitions, timeouts, and monitoring. Do not expose ClamD's unauthenticated TCP port publicly.
+- Production-only secrets supplied by the host, never committed or embedded in frontend build variables.
+- HTTPS, exact CORS origins, secure cookies, and a trusted reverse-proxy configuration verified for that provider.
+- Persistent storage, database/object backups, monitoring, usage limits, retention, and malware-scan failure alerts.
+
+No future-hosting configuration or public deployment is claimed as implemented or tested here.

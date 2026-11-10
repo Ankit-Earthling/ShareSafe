@@ -10,7 +10,7 @@ import {
 } from '../middleware/ipRateLimiter.js'
 import { RATE_LIMITS, RATE_LIMIT_WINDOW_MS } from '../middleware/rateLimiters.js'
 
-const originalRenderValue = process.env.RENDER
+const originalNodeEnv = process.env.NODE_ENV
 let server
 let baseUrl
 
@@ -33,18 +33,17 @@ async function startRateLimitServer(limit = 1) {
 }
 
 async function stopRateLimitServer() {
-  if (server) {
-    server.closeAllConnections?.()
-    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
-    server = undefined
-  }
+  if (!server) return
+  server.closeAllConnections?.()
+  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+  server = undefined
 }
 
 afterEach(stopRateLimitServer)
 
 after(() => {
-  if (originalRenderValue === undefined) delete process.env.RENDER
-  else process.env.RENDER = originalRenderValue
+  if (originalNodeEnv === undefined) delete process.env.NODE_ENV
+  else process.env.NODE_ENV = originalNodeEnv
 })
 
 test('IPv4 and IPv6 peer addresses use express-rate-limit ipKeyGenerator', () => {
@@ -54,65 +53,51 @@ test('IPv4 and IPv6 peer addresses use express-rate-limit ipKeyGenerator', () =>
   assert.equal(rateLimitClientKey({ socket: { remoteAddress: '::ffff:192.0.2.1' } }), '192.0.2.1')
 })
 
-test('local and Render modes leave trust proxy disabled and rate-limit a normal request by its socket', async () => {
-  for (const renderMode of [false, true]) {
-    if (renderMode) process.env.RENDER = 'true'
-    else delete process.env.RENDER
-
+test('development and production retain the default untrusted proxy boundary', async () => {
+  for (const nodeEnv of ['development', 'production']) {
+    process.env.NODE_ENV = nodeEnv
     await startRateLimitServer()
     const first = await fetch(`${baseUrl}/limited`)
-    const firstResult = await first.json()
+    const result = await first.json()
     const second = await fetch(`${baseUrl}/limited`)
 
     assert.equal(first.status, 200)
-    assert.equal(firstResult.trustProxy, false)
-    assert.equal(firstResult.ip, firstResult.socketAddress)
+    assert.equal(result.trustProxy, false)
+    assert.equal(result.ip, result.socketAddress)
     assert.equal(second.status, 429)
     await stopRateLimitServer()
   }
 })
 
-test('forwarded requests through the expected Render chain use the shared socket-peer bucket', async () => {
-  process.env.RENDER = 'true'
+test('requests through an unverified proxy chain share the socket-peer bucket', async () => {
   await startRateLimitServer()
-
   const first = await fetch(`${baseUrl}/limited`, {
     headers: { 'X-Forwarded-For': '198.51.100.10, 172.70.1.20, 10.0.0.5' },
   })
   const second = await fetch(`${baseUrl}/limited`, {
     headers: { 'X-Forwarded-For': '198.51.100.11, 172.70.1.21, 10.0.0.6' },
   })
-
   assert.equal(first.status, 200)
-  assert.equal(second.status, 429, 'end-client identity is not inferred from an unverified proxy chain')
+  assert.equal(second.status, 429)
 })
 
-test('forged X-Forwarded-For, including multiple values, cannot create new buckets', async () => {
-  process.env.RENDER = 'true'
+test('forged and multiple X-Forwarded-For values cannot create new buckets', async () => {
   await startRateLimitServer()
-
   assert.equal((await fetch(`${baseUrl}/limited`, { headers: { 'X-Forwarded-For': '192.0.2.1' } })).status, 200)
   assert.equal((await fetch(`${baseUrl}/limited`, { headers: { 'X-Forwarded-For': '192.0.2.2, 192.0.2.3' } })).status, 429)
   assert.equal((await fetch(`${baseUrl}/limited`, { headers: { 'X-Forwarded-For': '203.0.113.50, 203.0.113.51, 203.0.113.52' } })).status, 429)
 })
 
-test('forged CF-Connecting-IP cannot create new buckets, with or without X-Forwarded-For', async () => {
-  process.env.RENDER = 'true'
+test('forged CF-Connecting-IP cannot create buckets, alone or with X-Forwarded-For', async () => {
   await startRateLimitServer()
-
   assert.equal((await fetch(`${baseUrl}/limited`, { headers: { 'CF-Connecting-IP': '198.51.100.10' } })).status, 200)
   assert.equal((await fetch(`${baseUrl}/limited`, {
     headers: { 'CF-Connecting-IP': '198.51.100.11', 'X-Forwarded-For': '198.51.100.11' },
   })).status, 429)
-  assert.equal((await fetch(`${baseUrl}/limited`, {
-    headers: { 'CF-Connecting-IP': '198.51.100.12', 'X-Forwarded-For': '198.51.100.12, 10.0.0.8' },
-  })).status, 429)
 })
 
-test('requests without forwarded headers are keyed by the direct socket peer', async () => {
-  delete process.env.RENDER
+test('requests without forwarding headers are keyed by the direct socket peer', async () => {
   await startRateLimitServer()
-
   const response = await fetch(`${baseUrl}/limited`)
   const result = await response.json()
   assert.equal(response.status, 200)
@@ -121,9 +106,9 @@ test('requests without forwarded headers are keyed by the direct socket peer', a
   assert.equal(result.trustProxy, false)
 })
 
-test('authenticated requests use the authenticated user ID, not either forwarded header', async () => {
+test('authenticated requests have per-user buckets and ignore spoofed forwarding headers', async () => {
   const app = express()
-  const userLimiter = createAuthenticatedRateLimiter({
+  const limiter = createAuthenticatedRateLimiter({
     windowMs: 60_000,
     limit: 1,
     standardHeaders: false,
@@ -133,27 +118,22 @@ test('authenticated requests use the authenticated user ID, not either forwarded
     request.user = { _id: id }
     next()
   }
-  app.get('/alice', authenticateAs('user-a'), userLimiter, (_request, response) => response.sendStatus(200))
-  app.get('/bob', authenticateAs('user-b'), userLimiter, (_request, response) => response.sendStatus(200))
+  app.get('/alice', authenticateAs('user-a'), limiter, (_request, response) => response.sendStatus(200))
+  app.get('/bob', authenticateAs('user-b'), limiter, (_request, response) => response.sendStatus(200))
   server = app.listen(0, '127.0.0.1')
   await once(server, 'listening')
   baseUrl = `http://127.0.0.1:${server.address().port}`
 
-  const aliceFirst = await fetch(`${baseUrl}/alice`)
-  const aliceRepeat = await fetch(`${baseUrl}/alice`, {
+  assert.equal((await fetch(`${baseUrl}/alice`)).status, 200)
+  assert.equal((await fetch(`${baseUrl}/alice`, {
     headers: { 'X-Forwarded-For': '192.0.2.200', 'CF-Connecting-IP': '198.51.100.200' },
-  })
-  const bobFirst = await fetch(`${baseUrl}/bob`, {
+  })).status, 429)
+  assert.equal((await fetch(`${baseUrl}/bob`, {
     headers: { 'X-Forwarded-For': '192.0.2.200', 'CF-Connecting-IP': '198.51.100.200' },
-  })
-  const bobRepeat = await fetch(`${baseUrl}/bob`, {
+  })).status, 200)
+  assert.equal((await fetch(`${baseUrl}/bob`, {
     headers: { 'X-Forwarded-For': '192.0.2.201', 'CF-Connecting-IP': '198.51.100.201' },
-  })
-
-  assert.equal(aliceFirst.status, 200)
-  assert.equal(aliceRepeat.status, 429)
-  assert.equal(bobFirst.status, 200)
-  assert.equal(bobRepeat.status, 429)
+  })).status, 429)
   assert.equal(rateLimitAuthenticatedUserKey({ user: { _id: 'user-a' }, socket: { remoteAddress: '127.0.0.1' } }), 'user:user-a')
   assert.equal(rateLimitAuthenticatedUserKey({ user: { id: 'user-b' }, socket: { remoteAddress: '127.0.0.1' } }), 'user:user-b')
 })

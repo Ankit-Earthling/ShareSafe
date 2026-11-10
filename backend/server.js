@@ -20,10 +20,19 @@ async function startServer() {
     console.info('MongoDB connected.')
 
     phase = 'storage-initialization'
-    await import('./services/storage/backblazeB2Client.js')
+    if (env.storageDriver === 'b2') await import('./services/storage/backblazeB2Client.js')
 
     phase = 'scanner-initialization'
-    await import('./services/scanners/index.js')
+    const { scanStoredFile } = await import('./services/scanners/index.js')
+    try {
+      await scanStoredFile.check()
+      console.info('ClamAV daemon connected and virus definitions are ready.')
+    } catch (error) {
+      const category = typeof error?.code === 'string' && /^CLAMAV_[A-Z_]+$/.test(error.code)
+        ? error.code.toLowerCase().replaceAll('_', '-')
+        : 'clamav-unavailable'
+      console.warn(`ClamAV startup check failed (${category}). Uploads will remain blocked until scanning is available.`)
+    }
 
     phase = 'application-initialization'
     const { createApp } = await import('./app.js')

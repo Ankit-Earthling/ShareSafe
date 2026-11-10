@@ -55,13 +55,17 @@ test('pending files cannot be downloaded or shared and clean files become access
 })
 
 test('scanner unavailable records failed state and infected files are removed and blocked', async () => {
+  const beforeFailedScan = await context.User.findById(owner.user.id).select('usedStorageBytes')
   scannerMode = 'unavailable'
   const unavailable = await context.upload(owner.cookie)
   assert.equal(unavailable.response.status, 503)
   assert.match(unavailable.payload.message, /Malware scanning is unavailable/)
   const failed = await context.StoredFile.findOne({ owner: owner.user.id, originalName: 'sample.pdf', scanStatus: 'failed' }).select('+storageKey +storageProvider')
   assert.ok(failed)
+  assert.equal(failed.storageAccounted, false)
+  await assert.rejects(access(context.storage.stagedStoragePath(failed.storageKey)), { code: 'ENOENT' })
   const afterFailedScan = await context.User.findById(owner.user.id).select('usedStorageBytes')
+  assert.equal(afterFailedScan.usedStorageBytes, beforeFailedScan.usedStorageBytes)
   const failedDownload = await fetch(`${context.baseUrl}/api/files/${failed._id}/download`, { headers: { Cookie: owner.cookie } })
   assert.equal(failedDownload.status, 409)
   assert.equal((await createShare(failed._id.toString())).status, 409)
@@ -75,6 +79,7 @@ test('scanner unavailable records failed state and infected files are removed an
   const afterInfectedScan = await context.User.findById(owner.user.id).select('usedStorageBytes')
   assert.equal(afterInfectedScan.usedStorageBytes, afterFailedScan.usedStorageBytes)
   await assert.rejects(access(context.storage.storagePath(infected.storageKey)), { code: 'ENOENT' })
+  await assert.rejects(access(context.storage.stagedStoragePath(infected.storageKey)), { code: 'ENOENT' })
   const infectedDownload = await fetch(`${context.baseUrl}/api/files/${infected._id}/download`, { headers: { Cookie: owner.cookie } })
   assert.equal(infectedDownload.status, 409)
   assert.equal((await createShare(infected._id.toString())).status, 409)
@@ -88,6 +93,7 @@ test('scanner unavailable records failed state and infected files are removed an
   const afterSuspiciousScan = await context.User.findById(owner.user.id).select('usedStorageBytes')
   assert.equal(afterSuspiciousScan.usedStorageBytes, afterFailedScan.usedStorageBytes)
   await assert.rejects(access(context.storage.storagePath(suspicious.storageKey)), { code: 'ENOENT' })
+  await assert.rejects(access(context.storage.stagedStoragePath(suspicious.storageKey)), { code: 'ENOENT' })
   const suspiciousDownload = await fetch(`${context.baseUrl}/api/files/${suspicious._id}/download`, { headers: { Cookie: owner.cookie } })
   assert.equal(suspiciousDownload.status, 409)
   assert.equal((await createShare(suspicious._id.toString())).status, 409)

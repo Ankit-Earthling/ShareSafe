@@ -1,0 +1,13 @@
+services:
+  clamav:
+    image: clamav/clamav:1.5.4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - clamav-database:/var/lib/clamav
+    environment:
+      CLAMAV_NO_MILTERD: "true"
+
+volumes:
+  clamav-database:
