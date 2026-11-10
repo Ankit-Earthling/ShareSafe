@@ -53,6 +53,7 @@ test('validates uploads, scopes file ownership, lists files, and removes local f
   assert.match(stored.storageKey, /^[a-f0-9]{64}$/)
   const physicalPath = context.storage.storagePath(stored.storageKey)
   await access(physicalPath)
+  await assert.rejects(access(context.storage.stagedStoragePath(stored.storageKey)), { code: 'ENOENT' })
 
   const secondOwnerFile = await context.upload(anotherUser.cookie)
   assert.equal(secondOwnerFile.response.status, 201)

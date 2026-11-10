@@ -5,19 +5,18 @@ import { startTestServer } from './helpers.js'
 
 let context
 let storageChecks = 0
+let scannerChecks = 0
 
 before(async () => {
   const readinessHandler = createReadinessHandler({
     isDatabaseConnected: () => true,
     storageDriver: 'b2',
-    malwareScanner: 'bouncer',
     storageTimeoutMs: 20,
-    storageAdapter: {
-      check: ({ signal }) => new Promise((_resolve, reject) => {
-        storageChecks += 1
-        signal.addEventListener('abort', () => reject(new Error('simulated stalled B2 probe')), { once: true })
-      }),
-    },
+    storageCheck: ({ signal }) => new Promise((_resolve, reject) => {
+      storageChecks += 1
+      signal.addEventListener('abort', () => reject(new Error('simulated stalled storage check')), { once: true })
+    }),
+    scannerCheck: async () => { scannerChecks += 1 },
   })
   context = await startTestServer('sharesafe_health_test', { readinessHandler })
 })
@@ -42,8 +41,28 @@ test('GET /api/ready reports a stalled B2 dependency honestly without blocking l
   const elapsed = performance.now() - start
   assert.equal(response.status, 503)
   assert.deepEqual(await response.json(), {
-    status: 'unavailable', database: 'connected', storage: 'disconnected', scanner: 'bouncer',
+    status: 'unavailable', database: 'connected', storage: 'disconnected', scanner: 'connected',
   })
   assert.equal(storageChecks, 1)
+  assert.equal(scannerChecks, 1)
   assert.ok(elapsed < 500, `readiness timeout took ${elapsed.toFixed(1)} ms`)
+})
+
+test('local readiness fails while the ClamAV daemon is unavailable', async () => {
+  const readiness = createReadinessHandler({
+    isDatabaseConnected: () => true,
+    storageDriver: 'local',
+    storageCheck: async () => 'local',
+    scannerCheck: async () => { throw new Error('daemon unavailable') },
+  })
+  let statusCode
+  let body
+  await readiness({}, {
+    status(code) { statusCode = code; return this },
+    json(value) { body = value; return this },
+  })
+  assert.equal(statusCode, 503)
+  assert.deepEqual(body, {
+    status: 'unavailable', database: 'connected', storage: 'local', scanner: 'disconnected',
+  })
 })

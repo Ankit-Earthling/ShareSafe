@@ -1,5 +1,9 @@
 import { env } from '../../config/env.js'
-import { createBouncerScanner } from './bouncerScanner.js'
-import { scanWithClamAv } from './clamavScanner.js'
+import { createClamAvScanner } from './clamavScanner.js'
 
-export const scanStoredFile = env.malwareScanner === 'bouncer' ? createBouncerScanner() : scanWithClamAv
+export const scanStoredFile = createClamAvScanner({
+  host: env.clamavHost,
+  port: env.clamavPort,
+  connectTimeoutMs: env.clamavConnectTimeoutMs,
+  timeoutMs: env.clamavTimeoutMs,
+})

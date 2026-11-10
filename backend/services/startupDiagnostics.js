@@ -1,22 +1,20 @@
-const BASE_CONFIGURATION = [
-  'PORT',
-  'FRONTEND_URL',
-  'MONGODB_URI',
-  'JWT_SECRET',
-  'SHARE_TOKEN_SECRET',
-  'STORAGE_DRIVER',
-  'MALWARE_SCANNER',
-]
+const PRIVATE_CONFIGURATION = ['JWT_SECRET', 'SHARE_TOKEN_SECRET']
 
 const B2_CONFIGURATION = ['B2_ENDPOINT', 'B2_REGION', 'B2_BUCKET', 'B2_KEY_ID', 'B2_APPLICATION_KEY']
 
 export function configurationPresence(environment = process.env) {
-  const names = [...BASE_CONFIGURATION]
-  const scanner = (environment.MALWARE_SCANNER || 'clamav').trim().toLowerCase()
+  const names = [...PRIVATE_CONFIGURATION]
   const storage = (environment.STORAGE_DRIVER || 'local').trim().toLowerCase()
-  if (scanner === 'bouncer') names.push('BOUNCER_API_KEY')
   if (storage === 'b2') names.push(...B2_CONFIGURATION)
-  return Object.fromEntries([...new Set(names)].map((name) => [name, Boolean(environment[name]?.trim())]))
+  return {
+    PORT: Boolean(environment.PORT?.trim() || '3000'),
+    FRONTEND_URL: Boolean(environment.FRONTEND_URL?.trim() || 'http://localhost:5173'),
+    MONGODB_URI: Boolean(environment.MONGODB_URI?.trim() || 'mongodb://127.0.0.1:27017/sharesafe'),
+    STORAGE_DRIVER: Boolean(environment.STORAGE_DRIVER?.trim() || 'local'),
+    CLAMAV_HOST: Boolean(environment.CLAMAV_HOST?.trim() || '127.0.0.1'),
+    CLAMAV_PORT: Boolean(environment.CLAMAV_PORT?.trim() || '3310'),
+    ...Object.fromEntries(names.map((name) => [name, Boolean(environment[name]?.trim())])),
+  }
 }
 
 function collectMongoErrors(root) {
@@ -98,10 +96,10 @@ const safeMongoMessages = {
   'database-authentication': 'MongoDB rejected authentication. Verify the database user, password URL encoding, and authSource.',
   'database-tls': 'MongoDB TLS negotiation failed. Verify the Atlas endpoint and TLS compatibility; do not disable TLS.',
   'database-dns': 'MongoDB hostname or SRV lookup failed. Verify the Atlas hostname, cluster state, and DNS resolution.',
-  'database-network-timeout': 'MongoDB network connection timed out. Check Atlas Network Access for the Render outbound IP ranges and network routing.',
-  'database-ip-network': 'MongoDB network connection was refused or unreachable. Check Atlas Network Access and outbound network routing.',
-  'database-server-selection-timeout': 'MongoDB server selection timed out. Check cluster availability, Atlas Network Access, and DNS resolution.',
-  'database-server-selection': 'MongoDB could not select a server. Check cluster availability and network connectivity.',
+  'database-network-timeout': 'MongoDB network connection timed out. Check that the local service is running and reachable.',
+  'database-ip-network': 'MongoDB network connection was refused or unreachable. Check the local service and network routing.',
+  'database-server-selection-timeout': 'MongoDB server selection timed out. Check service availability, network access, and DNS resolution.',
+  'database-server-selection': 'MongoDB could not select a server. Check service availability and network connectivity.',
   'database-connection': 'MongoDB connection failed for an unclassified driver or server error.',
 }
 
