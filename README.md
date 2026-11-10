@@ -181,6 +181,15 @@ npm run build
 
 The live ClamAV check requires Docker Desktop and a healthy local `clamav` service. Backend integration tests also require the local MongoDB service or container.
 
+### Latest verification status
+
+- Backend tests: 31 passed.
+- Frontend tests: 6 passed.
+- Frontend lint and production build: passed.
+- Real ClamAV clean-file and EICAR scans: passed.
+- Local upload, download, malware rejection, and deletion integration tests: passed.
+- Manual browser verification was performed by the project owner. Automated browser testing is not claimed here.
+
 ## Troubleshooting
 
 **MongoDB connection refused:** Check `Get-Service MongoDB` and `Test-NetConnection 127.0.0.1 -Port 27017`. If using Docker, check `docker ps` and `docker logs sharesafe-mongodb`. Confirm `MONGODB_URI` points to the local database. Do not delete the database volume to troubleshoot connectivity.
